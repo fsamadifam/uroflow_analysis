@@ -1,0 +1,208 @@
+"""Core data types and structures for uroflow analysis."""
+
+from dataclasses import dataclass, field
+from typing import Optional, Literal
+from datetime import datetime
+
+
+EventSource = Literal["auto", "acquisition", "manual"]
+EventLabel = Literal["urine", "feces", "bad", ""]
+
+
+@dataclass
+class Segment:
+    """Represents a contiguous span of valid data samples.
+    
+    Segments are identified by having:
+    - All samples with finite mass values
+    - Continuous timestamps (no large gaps)
+    """
+    start_idx: int  # Inclusive
+    end_idx: int    # Exclusive
+    
+    def __len__(self) -> int:
+        return self.end_idx - self.start_idx
+    
+    def contains(self, idx: int) -> bool:
+        """Check if an index is within this segment."""
+        return self.start_idx <= idx < self.end_idx
+
+
+@dataclass
+class Gap:
+    """Represents a gap in the data (missing or invalid samples)."""
+    start_idx: int  # Inclusive
+    end_idx: int    # Exclusive
+    
+    def __len__(self) -> int:
+        return self.end_idx - self.start_idx
+
+
+@dataclass
+class DetectionParams:
+    """Parameters for auto-detection algorithm.
+    
+    These control how events are detected within segments.
+    """
+    diff_test_time_s: float     # Rolling window duration for delta computation (seconds)
+    threshold_g: float           # Minimum mass change to trigger detection (grams)
+    min_event_len_s: float       # Minimum event duration (seconds)
+    max_event_len_s: float       # Maximum event duration (seconds) - filters out long artifacts
+    min_gap_merge_s: float       # Maximum gap to merge between events (seconds)
+    min_valid_frac: float        # Minimum fraction of valid samples in rolling window
+    
+    @classmethod
+    def from_session_config(cls, config: dict) -> 'DetectionParams':
+        """Create detection parameters from session_config.json as reference.
+        
+        Args:
+            config: Session configuration dictionary
+            
+        Returns:
+            DetectionParams with values from config or defaults
+        """
+        snap = config.get('config_snapshot', {})
+        return cls(
+            diff_test_time_s=snap.get('diff_test_time', 5.0),
+            threshold_g=snap.get('threshold', 0.05),
+            min_event_len_s=2.0,  # defaults
+            max_event_len_s=30.0,  # default max duration 30 seconds
+            min_gap_merge_s=1.0,
+            min_valid_frac=0.8
+        )
+    
+    @classmethod
+    def default(cls) -> 'DetectionParams':
+        """Create default detection parameters."""
+        return cls(
+            diff_test_time_s=5.0,
+            threshold_g=0.05,
+            min_event_len_s=2.0,
+            max_event_len_s=30.0,  # default max duration 30 seconds
+            min_gap_merge_s=1.0,
+            min_valid_frac=0.8
+        )
+
+
+@dataclass
+class EventFeatures:
+    """Computed features for an event (for triage, not classification)."""
+    duration_s: float              # Event duration in seconds
+    delta_mass_g: float            # Net mass change (post - pre)
+    peak_slope_g_per_s: float      # Maximum positive slope
+    oscillation_score: float       # Sign changes in slope (normalized)
+    plateau_stability: float       # Std dev in tail window
+    coverage_frac: float           # Fraction of valid samples within event window
+    crosses_gap: bool              # True if event spans a data gap
+    
+    def __post_init__(self):
+        """Validate that all values are finite (except when crosses_gap=True)."""
+        import numpy as np
+        if self.crosses_gap:
+            return
+        # Check for NaN values when not crossing gap
+        for attr in ['duration_s', 'delta_mass_g', 'peak_slope_g_per_s', 
+                     'oscillation_score', 'plateau_stability', 'coverage_frac']:
+            val = getattr(self, attr)
+            if not np.isfinite(val):
+                raise ValueError(f"Feature {attr} is not finite: {val}")
+
+
+@dataclass
+class Event:
+    """Represents a detected or manually created event.
+    
+    Events are the fundamental unit of analysis - representing a potential
+    urine, feces, or artifact event in the time series.
+    """
+    # Core identification
+    event_id: str                          # Unique identifier
+    start_idx: int                         # Start sample index (inclusive)
+    end_idx: int                           # End sample index (exclusive)
+    start_time_s: float                    # Start time in seconds since session start
+    end_time_s: float                      # End time in seconds since session start
+    
+    # Source and provenance
+    source: EventSource = "auto"           # How event was created
+    locked: bool = False                   # If True, protected from overlap resolution
+    
+    # User labels
+    label_user: EventLabel = ""            # User-assigned label (empty = unlabeled)
+    notes: str = ""                        # Optional user notes
+    
+    # Computed features
+    features: Optional[EventFeatures] = None
+    needs_manual: bool = False             # True if crosses gap or other quality issues
+    
+    # Timestamps for tracking edits
+    created_at: str = field(default_factory=lambda: datetime.now().isoformat())
+    modified_at: str = field(default_factory=lambda: datetime.now().isoformat())
+    
+    def duration_s(self) -> float:
+        """Get event duration in seconds."""
+        return self.end_time_s - self.start_time_s
+    
+    def overlaps_with(self, other: 'Event') -> bool:
+        """Check if this event overlaps with another event."""
+        return not (self.end_idx <= other.start_idx or other.end_idx <= self.start_idx)
+    
+    def contains_time(self, time_s: float) -> bool:
+        """Check if a time point is within this event."""
+        return self.start_time_s <= time_s < self.end_time_s
+    
+    def contains_idx(self, idx: int) -> bool:
+        """Check if a sample index is within this event."""
+        return self.start_idx <= idx < self.end_idx
+    
+    def is_labeled(self) -> bool:
+        """Check if event has a user label."""
+        return self.label_user != ""
+    
+    def update_modified(self):
+        """Update the modified timestamp."""
+        self.modified_at = datetime.now().isoformat()
+
+
+@dataclass
+class Project:
+    """Complete project state for saving/loading analysis sessions.
+    
+    This contains everything needed to resume analysis without recomputing.
+    """
+    # Input data paths
+    input_csv_path: str
+    session_config_path: str
+    session_config_snapshot: dict  # Read-only copy for reference
+    
+    # Detection parameters (used for this analysis)
+    detection_params: DetectionParams
+    
+    # Events (auto-detected + manual + edited)
+    events: list[Event] = field(default_factory=list)
+    
+    # Metadata
+    created_at: str = field(default_factory=lambda: datetime.now().isoformat())
+    last_modified: str = field(default_factory=lambda: datetime.now().isoformat())
+    
+    def update_modified(self):
+        """Update the last modified timestamp."""
+        self.last_modified = datetime.now().isoformat()
+    
+    def get_event_by_id(self, event_id: str) -> Optional[Event]:
+        """Find an event by its ID."""
+        for event in self.events:
+            if event.event_id == event_id:
+                return event
+        return None
+    
+    def get_unlabeled_events(self) -> list[Event]:
+        """Get all events without user labels."""
+        return [e for e in self.events if not e.is_labeled()]
+    
+    def get_events_by_label(self, label: EventLabel) -> list[Event]:
+        """Get all events with a specific label."""
+        return [e for e in self.events if e.label_user == label]
+    
+    def sort_events_by_time(self):
+        """Sort events by start time in place."""
+        self.events.sort(key=lambda e: e.start_time_s)
