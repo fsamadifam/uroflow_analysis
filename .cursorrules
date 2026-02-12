@@ -1,0 +1,64 @@
+# Uroflow Analysis GUI - Development Constraints
+
+## Non-Negotiable Design Rules
+
+### 1. No Data Imputation
+- NEVER interpolate missing values
+- NEVER forward-fill or backward-fill NaN values
+- NEVER use fillna(), interp1d(), or any imputation methods
+- Always use np.nan* functions (nanmean, nanmedian, nanstd, etc.)
+- Missing data remains missing in all computations
+
+### 2. Segment-Wise Computation Only
+- All computations (rolling delta, features, detection) must operate within contiguous valid segments
+- Gaps in data break computation boundaries
+- Events NEVER span gaps unless manually forced (and must be marked as such)
+- Segments are identified by:
+  - Valid samples: np.isfinite(mass)
+  - Timestamp continuity: dt <= (median_dt * dt_factor)
+
+### 3. No Machine Learning
+- No ML models, no training, no classification algorithms
+- Detection uses deterministic thresholds and morphological operations only
+- Feature extraction is for triage/sorting, not automated classification
+
+### 4. Non-Overlapping Events
+- Final dataset must have zero overlapping events
+- Overlaps resolved deterministically by priority:
+  1. Manual events (source="manual" or locked=True) win
+  2. Acquisition-flagged events (source="acquisition") medium priority
+  3. Auto-detected events (source="auto") lowest priority
+- Same-label overlaps → merge boundaries
+- Different-label overlaps → snap boundaries (earlier keeps end, later starts at end)
+
+### 5. Modular and Clean Code
+- Clear separation of concerns
+- Each module has a single responsibility
+- Use dataclasses for data structures
+- Type hints required for all function signatures
+- Docstrings for all public functions and classes
+
+### 6. File-by-File Edits
+- No monolithic rewrites
+- Edit one file at a time
+- Test each module independently before integration
+
+## Implementation Priorities
+
+1. Core functionality first (detection, features, persistence)
+2. CLI baseline before GUI (validates core logic)
+3. Minimal GUI navigation before advanced features
+4. Progressive enhancement (labeling → box tool → boundary editing → gallery)
+
+## Testing Requirements
+
+- Unit tests for core algorithms (segments, detect, features, overlap)
+- Integration test: CLI → GUI load → edit → save → reload
+- Performance test: 1.7M row CSV load and render <2s
+
+## Data Integrity
+
+- Raw mass data is immutable once loaded
+- All edits tracked in project state, not raw data
+- Atomic writes for project saves (temp file → rename)
+- CSV export includes all metadata (source, locked, needs_manual)
