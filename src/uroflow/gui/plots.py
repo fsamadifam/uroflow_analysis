@@ -286,12 +286,12 @@ class OverviewPlot(QWidget):
             # Color by label and source
             color = self._get_event_color(event)
             
-            # Create region item
+            # Create region item with matching border color
             region = pg.LinearRegionItem(
                 values=[event.start_time_s, event.end_time_s],
                 orientation='vertical',
-                brush=pg.mkBrush(*color, 80),
-                pen=pg.mkPen(color, width=2),
+                brush=pg.mkBrush(*color, 80),  # Semi-transparent fill
+                pen=pg.mkPen(color, width=2),  # Border matches fill color
                 movable=False
             )
             

@@ -67,7 +67,7 @@ class MainWindow(QMainWindow):
             
             # Setup UI
             self.setWindowTitle("Uroflow Analysis")
-            self.resize(1600, 900)
+            self.resize(1920, 1080)
             
             print("Setting up UI...")
             self._setup_ui()
