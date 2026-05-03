@@ -90,13 +90,13 @@ class EventThumbWidget(QFrame):
         """Update widget style based on event state."""
         # Background by label
         if self.event.label_user == "urine":
-            color = "lightblue"
+            color = "rgba(255, 176, 0, 0.35)"
         elif self.event.label_user == "feces":
-            color = "tan"
+            color = "rgba(92, 46, 0, 0.28)"
         elif self.event.label_user == "bad":
             color = "lightcoral"
         else:
-            color = "lightgray"
+            color = "rgba(128, 128, 128, 0.35)"
         
         self.setStyleSheet(f"EventThumbWidget {{ background-color: {color}; }}")
     
