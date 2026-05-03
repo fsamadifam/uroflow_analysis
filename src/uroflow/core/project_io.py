@@ -166,6 +166,7 @@ def _event_to_dict(event: Event) -> dict:
         'notes': event.notes,
         'features': asdict(event.features) if event.features else None,
         'needs_manual': event.needs_manual,
+        'wall_clock_time': event.wall_clock_time,
         'created_at': event.created_at,
         'modified_at': event.modified_at,
     }
@@ -199,6 +200,7 @@ def _dict_to_event(event_dict: dict) -> Event:
         notes=event_dict['notes'],
         features=features,
         needs_manual=event_dict['needs_manual'],
+        wall_clock_time=event_dict.get('wall_clock_time', ''),
         created_at=event_dict['created_at'],
         modified_at=event_dict['modified_at'],
     )

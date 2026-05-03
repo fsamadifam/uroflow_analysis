@@ -134,6 +134,9 @@ class Event:
     features: Optional[EventFeatures] = None
     needs_manual: bool = False             # True if crosses gap or other quality issues
     
+    # Wall clock string from CSV row at event creation (not updated when boundaries move)
+    wall_clock_time: str = ""
+    
     # Timestamps for tracking edits
     created_at: str = field(default_factory=lambda: datetime.now().isoformat())
     modified_at: str = field(default_factory=lambda: datetime.now().isoformat())
