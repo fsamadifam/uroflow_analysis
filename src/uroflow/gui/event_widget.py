@@ -23,6 +23,7 @@ class EventWidget(QWidget):
         self.table_model = EventTableModel()
         self.proxy_model = EventFilterProxyModel()
         self.proxy_model.setSourceModel(self.table_model)
+        self.metadata = None
         
         self._setup_ui()
     
@@ -105,13 +106,15 @@ class EventWidget(QWidget):
         # Resize columns to contents
         self.table_view.resizeColumnsToContents()
     
-    def set_events(self, events: list):
+    def set_events(self, events: list, metadata: dict = None):
         """Set events in table.
         
         Args:
             events: List of Event objects
+            metadata: Optional metadata dict with wall_clock_time array
         """
-        self.table_model.set_events(events)
+        self.metadata = metadata
+        self.table_model.set_events(events, metadata)
         self.table_view.resizeColumnsToContents()
         self._update_count_label()
     

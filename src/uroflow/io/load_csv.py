@@ -2,7 +2,7 @@
 
 import numpy as np
 import pandas as pd
-from typing import Tuple, List
+from typing import Tuple, List, Optional
 from pathlib import Path
 
 
@@ -61,6 +61,16 @@ def load_uroflow_csv(csv_path: str) -> Tuple[np.ndarray, np.ndarray, np.ndarray,
     metadata['source_file'] = str(csv_path)
     
     return timestamp, mass, acquisition_events, metadata
+
+
+def wall_clock_at_index(metadata: Optional[dict], idx: int) -> str:
+    """Return wall_clock_time string from CSV metadata for a sample index."""
+    if metadata is None or 'wall_clock_time' not in metadata:
+        return ""
+    wct = metadata['wall_clock_time']
+    if idx < 0 or idx >= len(wct):
+        return ""
+    return str(wct[idx])
 
 
 def find_acquisition_event_windows(timestamp: np.ndarray, 
