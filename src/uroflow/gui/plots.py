@@ -16,6 +16,7 @@ class OverviewPlot(QWidget):
     region_selected = Signal(float, float)  # start_time, end_time
     manual_event_requested = Signal(float, float)  # start_time, end_time
     create_event_confirmed = Signal(float, float)  # start_time, end_time - when user confirms creation
+    detect_events_requested = Signal()  # When detect events button is clicked
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -110,6 +111,24 @@ class OverviewPlot(QWidget):
         self.create_info_label.setStyleSheet("color: #666; border: none;")
         self.create_info_label.hide()
         toolbar.addWidget(self.create_info_label)
+        
+        # Detect Events button (close to Create New Event button)
+        self.detect_events_btn = QPushButton("Detect Events")
+        self.detect_events_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #2196F3;
+                color: white;
+                font-weight: bold;
+                padding: 5px 15px;
+                border: 1px solid #1976D2;
+                border-radius: 3px;
+            }
+            QPushButton:hover {
+                background-color: #1976D2;
+            }
+        """)
+        self.detect_events_btn.clicked.connect(self.detect_events_requested.emit)
+        toolbar.addWidget(self.detect_events_btn)
         
         toolbar.addStretch()
         

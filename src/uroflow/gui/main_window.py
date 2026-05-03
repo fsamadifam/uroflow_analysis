@@ -112,6 +112,7 @@ class MainWindow(QMainWindow):
         self.overview_plot.event_clicked.connect(self._on_event_selected)
         self.overview_plot.manual_event_requested.connect(self._on_manual_event_requested)
         self.overview_plot.create_event_confirmed.connect(self._on_manual_event_requested)
+        self.overview_plot.detect_events_requested.connect(self._show_detect_events_dialog)
         left_layout.addWidget(self.overview_plot, stretch=2)
         
         # Detail plot
@@ -203,13 +204,6 @@ class MainWindow(QMainWindow):
         edit_menu.addAction(self.redo_action)
         
         self._update_undo_redo_actions()
-        
-        edit_menu.addSeparator()
-        
-        detect_action = QAction("&Detect Events...", self)
-        detect_action.setShortcut(QKeySequence("Ctrl+D"))
-        detect_action.triggered.connect(self._show_detect_events_dialog)
-        edit_menu.addAction(detect_action)
         
         # View menu
         view_menu = menubar.addMenu("&View")
