@@ -50,6 +50,7 @@ class MainWindow(QMainWindow):
             self.mass = None
             self.segments = None
             self.gaps = None
+            self.metadata = None
             
             # Current selection
             self.current_event_id = None
@@ -264,7 +265,11 @@ class MainWindow(QMainWindow):
             
             # Load CSV data
             progress.setLabelText("Loading CSV data...")
-            self.timestamp, self.mass, _, _ = load_uroflow_csv(self.project.input_csv_path)
+            self.timestamp, self.mass, _, self.metadata = load_uroflow_csv(self.project.input_csv_path)
+            # Add timestamp to metadata for wall clock time lookup
+            if self.metadata is None:
+                self.metadata = {}
+            self.metadata['timestamp'] = self.timestamp
             progress.setValue(2)
             
             # Compute segments (use default dt_factor=5.0 for gap detection)
@@ -316,7 +321,7 @@ class MainWindow(QMainWindow):
             # Load data
             progress.setLabelText("Loading CSV...")
             QApplication.processEvents()
-            timestamp, mass, acquisition_events, _ = load_uroflow_csv(csv_path)
+            timestamp, mass, acquisition_events, metadata = load_uroflow_csv(csv_path)
             progress.setValue(1)
             QApplication.processEvents()
             
@@ -377,6 +382,11 @@ class MainWindow(QMainWindow):
             self.mass = mass
             self.segments = segments
             self.gaps = gaps
+            self.metadata = metadata
+            # Add timestamp to metadata for wall clock time lookup
+            if self.metadata is None:
+                self.metadata = {}
+            self.metadata['timestamp'] = timestamp
             
             # Update UI
             progress.setLabelText("Updating UI...")
@@ -437,7 +447,7 @@ class MainWindow(QMainWindow):
             
             # Update event table
             print("  Updating event table...")
-            self.event_widget.set_events(self.project.events)
+            self.event_widget.set_events(self.project.events, self.metadata)
             
             # Update event gallery
             print("  Updating event gallery...")
@@ -781,7 +791,7 @@ class MainWindow(QMainWindow):
         self.project.events.sort(key=lambda e: e.start_time_s)
         
         # Refresh all views
-        self.event_widget.set_events(self.project.events)
+        self.event_widget.set_events(self.project.events, self.metadata)
         self.overview_plot.set_data(
             self.timestamp, self.mass,
             self.segments, self.gaps,
@@ -813,10 +823,16 @@ class MainWindow(QMainWindow):
             clear_existing = dialog.should_clear_existing()
             use_acquisition = dialog.should_use_acquisition()
             auto_classify = dialog.should_auto_classify()
+            classify_only = dialog.should_classify_only()
             classification_params = dialog.get_classification_params() if auto_classify else None
             
-            # Run detection
-            self._run_event_detection(params, clear_existing, use_acquisition, auto_classify, classification_params)
+            # Run detection or classification
+            if classify_only:
+                # Only classify existing events, do not detect new ones
+                self._run_classification_only(classification_params)
+            else:
+                # Full detection workflow
+                self._run_event_detection(params, clear_existing, use_acquisition, auto_classify, classification_params)
     
     def _run_event_detection(self, params: DetectionParams, 
                              clear_existing: bool, use_acquisition: bool,
@@ -1046,6 +1062,87 @@ class MainWindow(QMainWindow):
             print(error_msg)
             QMessageBox.critical(self, "Detection Error", error_msg)
     
+    def _run_classification_only(self, classification_params: dict = None):
+        """Classify existing events without creating or removing any.
+        
+        Args:
+            classification_params: Dictionary with classification parameters
+        """
+        from uroflow.core.features import auto_classify_events
+        
+        try:
+            if not self.project or not self.project.events:
+                QMessageBox.warning(self, "No Events", "No events to classify.")
+                return
+            
+            # Show progress dialog
+            progress = QProgressDialog("Classifying events...", None, 0, 2, self)
+            progress.setWindowModality(Qt.WindowModal)
+            progress.setCancelButton(None)
+            progress.setValue(0)
+            progress.show()
+            QApplication.processEvents()
+            
+            # Use provided classification params or defaults
+            if classification_params is None:
+                classification_params = {
+                    'urine_min_mass_g': 0.1,
+                    'feces_min_mass_g': 0.05,
+                    'slope_ratio_threshold': 2.5
+                }
+            
+            print(f"\n{'='*60}")
+            print(f"CLASSIFICATION ONLY MODE")
+            print(f"Classifying {len(self.project.events)} existing events")
+            print(f"{'='*60}")
+            
+            # Classify existing events (modifies events in-place)
+            auto_classify_events(
+                self.project.events,
+                urine_min_mass_g=classification_params['urine_min_mass_g'],
+                feces_min_mass_g=classification_params['feces_min_mass_g'],
+                slope_ratio_threshold=classification_params['slope_ratio_threshold']
+            )
+            
+            # Count classifications
+            n_urine = sum(1 for e in self.project.events if e.label_user == "urine")
+            n_feces = sum(1 for e in self.project.events if e.label_user == "feces")
+            n_unlabeled = sum(1 for e in self.project.events if not e.label_user or e.label_user == "unlabeled")
+            
+            print(f"Classification results:")
+            print(f"  Urine: {n_urine}")
+            print(f"  Feces: {n_feces}")
+            print(f"  Unlabeled: {n_unlabeled}")
+            print(f"{'='*60}\n")
+            
+            progress.setValue(1)
+            QApplication.processEvents()
+            
+            # Mark project as modified
+            self.project.update_modified()
+            
+            # Update UI
+            progress.setLabelText("Updating UI...")
+            QApplication.processEvents()
+            self._refresh_all_views()
+            self._update_counts()
+            progress.setValue(2)
+            
+            # Close progress and show result
+            progress.close()
+            
+            self.status_label.setText(
+                f"Classification complete: {n_urine} urine, {n_feces} feces, {n_unlabeled} unlabeled"
+            )
+            
+            print(f"Classification complete")
+            
+        except Exception as e:
+            import traceback
+            error_msg = f"Error during classification:\n\n{str(e)}\n\n{traceback.format_exc()}"
+            print(error_msg)
+            QMessageBox.critical(self, "Classification Error", error_msg)
+    
     def _refresh_all_views(self):
         """Refresh all UI views after event changes."""
         if not self.project:
@@ -1064,7 +1161,7 @@ class MainWindow(QMainWindow):
         QApplication.processEvents()
         
         # Update event table
-        self.event_widget.set_events(self.project.events)
+        self.event_widget.set_events(self.project.events, self.metadata)
         
         # Update gallery
         try:
@@ -1189,7 +1286,7 @@ class MainWindow(QMainWindow):
         command = self.undo_stack.undo()
         if command:
             # Refresh UI
-            self.event_widget.set_events(self.project.events)
+            self.event_widget.set_events(self.project.events, self.metadata)
             self.overview_plot.set_data(self.timestamp, self.mass, self.segments, self.gaps, self.project.events)
             self._update_undo_redo_actions()
             self._update_counts()
@@ -1200,7 +1297,7 @@ class MainWindow(QMainWindow):
         command = self.undo_stack.redo()
         if command:
             # Refresh UI
-            self.event_widget.set_events(self.project.events)
+            self.event_widget.set_events(self.project.events, self.metadata)
             self.overview_plot.set_data(self.timestamp, self.mass, self.segments, self.gaps, self.project.events)
             self._update_undo_redo_actions()
             self._update_counts()

@@ -2,12 +2,11 @@
 
 import numpy as np
 import pyqtgraph as pg
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QDoubleSpinBox
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel
 from PySide6.QtCore import Signal
 from PySide6.QtGui import QColor
 
 from uroflow.core.types import Event, Segment, Gap
-from uroflow.core.downsample import downsample_minmax
 
 
 class OverviewPlot(QWidget):
@@ -114,36 +113,20 @@ class OverviewPlot(QWidget):
         
         toolbar.addStretch()
         
-        # Downsampling control
-        downsample_label = QLabel("Downsample Factor:")
-        toolbar.addWidget(downsample_label)
-        
-        self.downsample_spin = QDoubleSpinBox()
-        self.downsample_spin.setRange(1.0, 100.0)
-        self.downsample_spin.setValue(1.0)  # Default: no downsampling
-        self.downsample_spin.setDecimals(1)
-        self.downsample_spin.setSingleStep(0.5)
-        self.downsample_spin.setToolTip(
-            "Downsampling factor: 1 = all points, 2 = every 2nd point (50%),\n"
-            "4 = every 4th point (25%), etc.\n"
-            "Higher values = faster rendering but less detail.\n"
-            "Click 'Apply' to update the plot."
-        )
-        toolbar.addWidget(self.downsample_spin)
-        
-        self.downsample_apply_btn = QPushButton("Apply")
-        self.downsample_apply_btn.setToolTip("Apply downsampling factor to update the plot")
-        self.downsample_apply_btn.clicked.connect(self._on_downsample_apply)
-        toolbar.addWidget(self.downsample_apply_btn)
-        
         layout.addLayout(toolbar)
         
         # Create plot widget
         self.plot_widget = pg.PlotWidget()
         self.plot_widget.setBackground('w')
-        self.plot_widget.setLabel('left', 'Mass', units='g')
-        self.plot_widget.setLabel('bottom', 'Time')
+        self.plot_widget.setLabel('left', 'Mass', units='g', color='k')
+        self.plot_widget.setLabel('bottom', 'Time', color='k')
         self.plot_widget.showGrid(x=True, y=True, alpha=0.3)
+        
+        # Set axis label and tick colors to black
+        self.plot_widget.getAxis('left').setPen('k')
+        self.plot_widget.getAxis('left').setTextPen('k')
+        self.plot_widget.getAxis('bottom').setPen('k')
+        self.plot_widget.getAxis('bottom').setTextPen('k')
         
         # Custom time axis formatter
         from pyqtgraph import AxisItem
@@ -164,6 +147,11 @@ class OverviewPlot(QWidget):
         
         # Replace bottom axis
         self.plot_widget.setAxisItems({'bottom': TimeAxisItem(orientation='bottom')})
+        
+        # Ensure bottom axis is also black
+        bottom_axis = self.plot_widget.getAxis('bottom')
+        bottom_axis.setPen('k')
+        bottom_axis.setTextPen('k')
         
         # Enable box zoom: right-click drag to zoom to a box, middle-click to reset
         self.plot_widget.getViewBox().setMouseMode(pg.ViewBox.RectMode)
@@ -216,24 +204,9 @@ class OverviewPlot(QWidget):
         
         print(f"OverviewPlot._redraw: Drawing {len(self.timestamp)} points, {len(self.events)} events")
         
-        # Downsample for performance (use factor from spinbox)
-        downsample_factor = self.downsample_spin.value()
-        if downsample_factor > 1.0:
-            # Calculate target number of points: total / factor
-            n_target = max(100, int(len(self.timestamp) / downsample_factor))
-            if len(self.timestamp) > n_target:
-                t_down, m_down = downsample_minmax(self.timestamp, self.mass, n_target)
-                print(f"  Downsampled by factor {downsample_factor:.1f}x to {len(t_down)} points (from {len(self.timestamp)})")
-            else:
-                t_down, m_down = self.timestamp, self.mass
-        else:
-            # Factor = 1.0 means no downsampling
-            t_down, m_down = self.timestamp, self.mass
-            print(f"  No downsampling (factor = {downsample_factor:.1f})")
-        
-        # Update data curve
+        # Update data curve with all points (no downsampling)
         try:
-            self.data_curve.setData(t_down, m_down)
+            self.data_curve.setData(self.timestamp, self.mass)
             print(f"  Data curve updated")
         except Exception as e:
             print(f"  ERROR setting data curve: {e}")
@@ -270,11 +243,6 @@ class OverviewPlot(QWidget):
         # Force repaint
         self.plot_widget.update()
         self.update()
-    
-    def _on_downsample_apply(self):
-        """Handle downsampling apply button click."""
-        if self.timestamp is not None:
-            self._redraw()
     
     def _draw_gaps(self):
         """Draw gap regions."""
@@ -339,21 +307,21 @@ class OverviewPlot(QWidget):
         Returns:
             RGB tuple (0-255)
         """
-        # By label
+        # By label - high-contrast colors
         if event.label_user == "urine":
-            return (0, 120, 255)  # Blue
+            return (255, 176, 0)  # Vivid orange/amber (#FFB000)
         elif event.label_user == "feces":
-            return (139, 69, 19)  # Brown
+            return (92, 46, 0)  # Dark brown (#5C2E00)
         elif event.label_user == "bad":
             return (255, 0, 0)  # Red
         
-        # By source (unlabeled)
+        # By source (unlabeled) - neutral gray
         if event.source == "manual":
             return (0, 200, 0)  # Green
         elif event.source == "acquisition":
-            return (255, 165, 0)  # Orange
+            return (255, 200, 0)  # Yellow
         else:  # "auto"
-            return (150, 150, 150)  # Gray
+            return (128, 128, 128)  # Neutral gray (#808080)
     
     def _on_mouse_click(self, event):
         """Handle mouse click to select event or start drag."""
@@ -652,9 +620,15 @@ class DetailPlot(QWidget):
         # Create plot widget
         self.plot_widget = pg.PlotWidget()
         self.plot_widget.setBackground('w')
-        self.plot_widget.setLabel('left', 'Mass', units='g')
-        self.plot_widget.setLabel('bottom', 'Time')
+        self.plot_widget.setLabel('left', 'Mass', units='g', color='k')
+        self.plot_widget.setLabel('bottom', 'Time', color='k')
         self.plot_widget.showGrid(x=True, y=True, alpha=0.3)
+        
+        # Set axis label and tick colors to black
+        self.plot_widget.getAxis('left').setPen('k')
+        self.plot_widget.getAxis('left').setTextPen('k')
+        self.plot_widget.getAxis('bottom').setPen('k')
+        self.plot_widget.getAxis('bottom').setTextPen('k')
         
         # Custom time axis formatter (always H:M:S for detail plot)
         from pyqtgraph import AxisItem
@@ -670,6 +644,11 @@ class DetailPlot(QWidget):
         
         # Replace bottom axis
         self.plot_widget.setAxisItems({'bottom': DetailTimeAxisItem(orientation='bottom')})
+        
+        # Ensure bottom axis is also black
+        bottom_axis = self.plot_widget.getAxis('bottom')
+        bottom_axis.setPen('k')
+        bottom_axis.setTextPen('k')
         
         layout.addWidget(self.plot_widget)
         
@@ -687,13 +666,15 @@ class DetailPlot(QWidget):
             angle=90,
             movable=True,
             pen=pg.mkPen('g', width=3, style=QtCore.DashLine),
-            label='Start'
+            label='Start',
+            labelOpts={'color': 'k', 'position': 0.5, 'anchors': [(1, 0.5), (1, 0.5)]}  # Anchor RIGHT edge, label appears LEFT of line
         )
         self.end_line = pg.InfiniteLine(
             angle=90,
             movable=True,
             pen=pg.mkPen('r', width=3, style=QtCore.DashLine),
-            label='End'
+            label='End',
+            labelOpts={'color': 'k', 'position': 0.5, 'anchors': [(0, 0.5), (0, 0.5)]}  # Anchor LEFT edge, label appears RIGHT of line
         )
         
         self.plot_widget.addItem(self.start_line)

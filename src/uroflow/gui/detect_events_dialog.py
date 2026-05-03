@@ -189,6 +189,16 @@ class DetectEventsDialog(QDialog):
         options_group = QGroupBox("Options")
         options_layout = QVBoxLayout()
         
+        self.classify_only_check = QCheckBox("Classify existing events only (do not detect new events)")
+        self.classify_only_check.setChecked(False)
+        self.classify_only_check.setToolTip(
+            "If checked, only classifies existing events as urine/feces/unlabeled.\n"
+            "Does NOT create or remove any events. Use this in edit mode to\n"
+            "classify events after manual boundary adjustments."
+        )
+        self.classify_only_check.toggled.connect(self._on_classify_only_toggled)
+        options_layout.addWidget(self.classify_only_check)
+        
         self.clear_existing_check = QCheckBox("Clear existing auto-detected events before detection")
         self.clear_existing_check.setChecked(True)
         self.clear_existing_check.setToolTip(
@@ -264,6 +274,21 @@ class DetectEventsDialog(QDialog):
         self.min_gap_merge_spin.setValue(defaults.min_gap_merge_s)
         self.min_valid_frac_spin.setValue(defaults.min_valid_frac)
     
+    def _on_classify_only_toggled(self, checked: bool):
+        """Handle classify-only checkbox toggle.
+        
+        When classify-only is enabled, disable detection-related options.
+        """
+        # Disable detection-related options when in classify-only mode
+        self.clear_existing_check.setEnabled(not checked)
+        self.use_acquisition_check.setEnabled(not checked)
+        
+        # Update button text
+        if checked:
+            self.detect_btn.setText("Classify Events")
+        else:
+            self.detect_btn.setText("Detect Events")
+    
     def get_detection_params(self) -> DetectionParams:
         """Get the configured detection parameters.
         
@@ -290,6 +315,10 @@ class DetectEventsDialog(QDialog):
     def should_auto_classify(self) -> bool:
         """Check if auto-classification should be applied."""
         return self.auto_classify_check.isChecked()
+    
+    def should_classify_only(self) -> bool:
+        """Check if only classification should be performed (no detection)."""
+        return self.classify_only_check.isChecked()
     
     def get_classification_params(self) -> dict:
         """Get classification parameters.
