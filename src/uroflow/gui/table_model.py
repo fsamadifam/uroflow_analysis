@@ -13,30 +13,33 @@ class EventTableModel(QAbstractTableModel):
     # Column indices
     COL_ID = 0
     COL_START_TIME = 1
-    COL_DURATION = 2
-    COL_DELTA_MASS = 3
-    COL_LABEL = 4
-    COL_SOURCE = 5
-    COL_LOCKED = 6
-    COL_NEEDS_MANUAL = 7
+    COL_WALL_CLOCK_TIME = 2
+    COL_DURATION = 3
+    COL_DELTA_MASS = 4
+    COL_LABEL = 5
+    COL_SOURCE = 6
+    COL_LOCKED = 7
     
     HEADERS = [
-        "ID", "Start (s)", "Duration (s)", "Δ Mass (g)",
-        "Label", "Source", "Locked", "Needs Manual"
+        "ID", "Start (s)", "Wall Clock Time", "Duration (s)", "Δ Mass (g)",
+        "Label", "Source", "Locked"
     ]
     
     def __init__(self, parent=None):
         super().__init__(parent)
         self.events: List[Event] = []
+        self.metadata = None  # Metadata dict with wall_clock_time array
     
-    def set_events(self, events: List[Event]):
+    def set_events(self, events: List[Event], metadata: dict = None):
         """Set event list and refresh model.
         
         Args:
             events: List of Event objects
+            metadata: Optional metadata dict with wall_clock_time array
         """
         self.beginResetModel()
         self.events = events
+        self.metadata = metadata
         self.endResetModel()
     
     def rowCount(self, parent=QModelIndex()) -> int:
@@ -82,6 +85,8 @@ class EventTableModel(QAbstractTableModel):
         elif role == Qt.TextAlignmentRole:
             if col in [self.COL_START_TIME, self.COL_DURATION, self.COL_DELTA_MASS]:
                 return Qt.AlignRight | Qt.AlignVCenter
+            elif col == self.COL_WALL_CLOCK_TIME:
+                return Qt.AlignLeft | Qt.AlignVCenter
             return Qt.AlignLeft | Qt.AlignVCenter
         
         elif role == Qt.UserRole:
@@ -98,6 +103,26 @@ class EventTableModel(QAbstractTableModel):
         
         elif col == self.COL_START_TIME:
             return f"{event.start_time_s:.1f}"
+        
+        elif col == self.COL_WALL_CLOCK_TIME:
+            # Get wall clock time from metadata if available
+            # Use start_time_s to find the original timestamp in CSV
+            if self.metadata and 'wall_clock_time' in self.metadata:
+                wall_clock_times = self.metadata['wall_clock_time']
+                # Find the index in original timestamp array that corresponds to this time
+                # This stays constant even when event boundaries are edited
+                if hasattr(self.metadata, 'get') and 'timestamp' in self.metadata:
+                    timestamp = self.metadata['timestamp']
+                    # Find closest timestamp to event.start_time_s
+                    import numpy as np
+                    idx = np.searchsorted(timestamp, event.start_time_s)
+                    idx = min(idx, len(wall_clock_times) - 1)
+                    if idx < len(wall_clock_times):
+                        return str(wall_clock_times[idx])
+                elif event.start_idx < len(wall_clock_times):
+                    # Fallback: use start_idx if timestamp not available
+                    return str(wall_clock_times[event.start_idx])
+            return "-"
         
         elif col == self.COL_DURATION:
             return f"{event.duration_s():.2f}"
@@ -116,25 +141,22 @@ class EventTableModel(QAbstractTableModel):
         elif col == self.COL_LOCKED:
             return "Yes" if event.locked else "No"
         
-        elif col == self.COL_NEEDS_MANUAL:
-            return "Yes" if event.needs_manual else "No"
-        
         return ""
     
     def _get_background_color(self, event: Event, col: int) -> Optional[QColor]:
         """Get background color for cell."""
-        # Highlight by label
+        # Highlight by label - high-contrast colors
         if col == self.COL_LABEL:
             if event.label_user == "urine":
-                return QColor(173, 216, 230, 80)  # Light blue
+                return QColor(255, 220, 150, 120)  # Light amber/orange
             elif event.label_user == "feces":
-                return QColor(210, 180, 140, 80)  # Tan
+                return QColor(160, 120, 80, 120)  # Light brown
             elif event.label_user == "bad":
-                return QColor(255, 182, 193, 80)  # Light red
+                return QColor(255, 182, 193, 100)  # Light red
             else:
                 return QColor(245, 245, 245)  # Light gray for unlabeled
         
-        # Highlight needs_manual rows
+        # Highlight needs_manual rows (kept for internal use)
         if event.needs_manual:
             return QColor(255, 255, 200, 50)  # Very light yellow
         
