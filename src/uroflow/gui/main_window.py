@@ -24,6 +24,7 @@ from uroflow.gui.plots import OverviewPlot, DetailPlot
 from uroflow.gui.event_widget import EventWidget
 from uroflow.gui.gallery import EventGallery
 from uroflow.gui.info_panel import InfoPanel
+from uroflow.gui.summary_panel import SummaryPanel
 from uroflow.gui.actions import UndoStack, LabelEventCommand, DeleteEventCommand, DetectEventsCommand
 from uroflow.gui.detect_events_dialog import DetectEventsDialog
 
@@ -141,6 +142,10 @@ class MainWindow(QMainWindow):
         # Info tab
         self.info_widget = InfoPanel()
         right_panel.addTab(self.info_widget, "Info")
+        
+        # Summary tab
+        self.summary_widget = SummaryPanel()
+        right_panel.addTab(self.summary_widget, "Summary")
         
         main_splitter.addWidget(right_panel)
         
@@ -452,6 +457,15 @@ class MainWindow(QMainWindow):
                 import traceback
                 traceback.print_exc()
             
+            # Update summary panel
+            print("  Updating summary panel...")
+            try:
+                self.summary_widget.set_events(self.project.events)
+            except Exception as e:
+                print(f"  ERROR updating summary: {e}")
+                import traceback
+                traceback.print_exc()
+            
             # Select first event if available
             if self.project.events:
                 print(f"  Selecting first event: {self.project.events[0].event_id}")
@@ -740,6 +754,9 @@ class MainWindow(QMainWindow):
             # Notify gallery that thumbnails are stale
             self.event_gallery.update_events(self.project.events)
             
+            # Update summary panel (mass may have changed)
+            self.summary_widget.set_events(self.project.events)
+            
             print(f"  Updated: duration={event.duration_s():.2f}s, delta_mass={event.features.delta_mass_g if event.features else 'N/A'}")
         except Exception as e:
             print(f"  ERROR in _apply_boundary_change: {e}")
@@ -798,6 +815,7 @@ class MainWindow(QMainWindow):
             self.project.events
         )
         self.event_gallery.set_data(self.timestamp, self.mass, self.project.events)
+        self.summary_widget.set_events(self.project.events)
         
         # Select the new event
         self._on_event_selected(new_event.event_id)
@@ -1169,6 +1187,12 @@ class MainWindow(QMainWindow):
         except Exception as e:
             print(f"Warning: Could not update gallery: {e}")
         
+        # Update summary
+        try:
+            self.summary_widget.set_events(self.project.events)
+        except Exception as e:
+            print(f"Warning: Could not update summary: {e}")
+        
         # Force another UI update
         QApplication.processEvents()
         
@@ -1242,6 +1266,9 @@ class MainWindow(QMainWindow):
         # Notify gallery that thumbnails are stale
         self.event_gallery.update_events(self.project.events)
         
+        # Update summary panel
+        self.summary_widget.set_events(self.project.events)
+        
         # Update counts
         self._update_counts()
         
@@ -1276,6 +1303,9 @@ class MainWindow(QMainWindow):
         # Notify gallery that thumbnails are stale
         self.event_gallery.update_events(self.project.events)
         
+        # Update summary panel
+        self.summary_widget.set_events(self.project.events)
+        
         # Select next event
         if self.project.events:
             self._on_event_selected(self.project.events[0].event_id)
@@ -1294,6 +1324,7 @@ class MainWindow(QMainWindow):
             # Refresh UI
             self.event_widget.set_events(self.project.events, self.metadata)
             self.overview_plot.set_data(self.timestamp, self.mass, self.segments, self.gaps, self.project.events)
+            self.summary_widget.set_events(self.project.events)
             self._update_undo_redo_actions()
             self._update_counts()
             self.status_label.setText(f"Undone: {command.description()}")
@@ -1305,6 +1336,7 @@ class MainWindow(QMainWindow):
             # Refresh UI
             self.event_widget.set_events(self.project.events, self.metadata)
             self.overview_plot.set_data(self.timestamp, self.mass, self.segments, self.gaps, self.project.events)
+            self.summary_widget.set_events(self.project.events)
             self._update_undo_redo_actions()
             self._update_counts()
             self.status_label.setText(f"Redone: {command.description()}")
