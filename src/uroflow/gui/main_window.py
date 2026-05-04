@@ -614,8 +614,11 @@ class MainWindow(QMainWindow):
             except Exception as e:
                 print(f"  WARNING: Could not sync table selection: {e}")
             
-            # Sync gallery selection (temporarily disabled to isolate crash)
-            print("  Gallery highlight (temporarily disabled)")
+            # Sync gallery selection
+            try:
+                self.event_gallery.highlight_event(event_id)
+            except Exception as e:
+                print(f"  WARNING: Could not highlight gallery: {e}")
             
             # Update info panel
             try:
@@ -733,6 +736,9 @@ class MainWindow(QMainWindow):
             
             # Mark project as modified
             self.project.update_modified()
+            
+            # Notify gallery that thumbnails are stale
+            self.event_gallery.update_events(self.project.events)
             
             print(f"  Updated: duration={event.duration_s():.2f}s, delta_mass={event.features.delta_mass_g if event.features else 'N/A'}")
         except Exception as e:
@@ -1233,6 +1239,9 @@ class MainWindow(QMainWindow):
         self.overview_plot.set_data(self.timestamp, self.mass, self.segments, self.gaps, self.project.events)
         self._update_undo_redo_actions()
         
+        # Notify gallery that thumbnails are stale
+        self.event_gallery.update_events(self.project.events)
+        
         # Update counts
         self._update_counts()
         
@@ -1263,6 +1272,9 @@ class MainWindow(QMainWindow):
         self.overview_plot.set_data(self.timestamp, self.mass, self.segments, self.gaps, self.project.events)
         self.detail_plot.clear()
         self._update_undo_redo_actions()
+        
+        # Notify gallery that thumbnails are stale
+        self.event_gallery.update_events(self.project.events)
         
         # Select next event
         if self.project.events:

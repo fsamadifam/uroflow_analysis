@@ -6,10 +6,88 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QScrollArea, QGridLayout,
     QLabel, QPushButton, QFrame
 )
-from PySide6.QtCore import Signal, Qt
-from PySide6.QtGui import QColor
+from PySide6.QtCore import Signal, Qt, QPointF
+from PySide6.QtGui import QColor, QPixmap, QPainter, QPen, QPolygonF
 
 from uroflow.core.types import Event
+
+
+def _render_thumb_pixmap(timestamp: np.ndarray, mass: np.ndarray,
+                         event: Event, padding_s: float = 5.0,
+                         width: int = 190, height: int = 100) -> QPixmap:
+    """Render an event trace to a static QPixmap using QPainter directly.
+
+    Draws the trace as a polyline with start/end markers, avoiding live PlotWidgets.
+    """
+    margin = 4
+    pixmap = QPixmap(width, height)
+    pixmap.fill(QColor(255, 255, 255))
+
+    t_start = max(0, event.start_time_s - padding_s)
+    t_end = event.end_time_s + padding_s
+
+    start_idx = np.searchsorted(timestamp, t_start)
+    end_idx = np.searchsorted(timestamp, t_end)
+
+    window_t = timestamp[start_idx:end_idx]
+    window_m = mass[start_idx:end_idx]
+
+    if len(window_t) < 2:
+        return pixmap
+
+    valid = np.isfinite(window_m)
+    if not np.any(valid):
+        return pixmap
+
+    t_min, t_max = window_t[0], window_t[-1]
+    m_min = float(np.nanmin(window_m[valid]))
+    m_max = float(np.nanmax(window_m[valid]))
+    if t_max == t_min:
+        t_max = t_min + 1.0
+    if m_max == m_min:
+        m_max = m_min + 1.0
+
+    draw_w = width - 2 * margin
+    draw_h = height - 2 * margin
+
+    def to_px(t, m):
+        x = margin + (t - t_min) / (t_max - t_min) * draw_w
+        y = margin + (1.0 - (m - m_min) / (m_max - m_min)) * draw_h
+        return int(x), int(y)
+
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.Antialiasing)
+
+    # Draw trace
+    pen = QPen(QColor(0, 0, 0))
+    pen.setWidth(1)
+    painter.setPen(pen)
+
+    points = QPolygonF()
+    for j in range(len(window_t)):
+        if valid[j]:
+            x, y = to_px(window_t[j], window_m[j])
+            points.append(QPointF(x, y))
+    painter.drawPolyline(points)
+
+    # Draw start marker (green vertical line)
+    if t_min <= event.start_time_s <= t_max:
+        sx = margin + (event.start_time_s - t_min) / (t_max - t_min) * draw_w
+        pen_g = QPen(QColor(0, 180, 0))
+        pen_g.setWidth(2)
+        painter.setPen(pen_g)
+        painter.drawLine(int(sx), margin, int(sx), height - margin)
+
+    # Draw end marker (red vertical line)
+    if t_min <= event.end_time_s <= t_max:
+        ex = margin + (event.end_time_s - t_min) / (t_max - t_min) * draw_w
+        pen_r = QPen(QColor(220, 0, 0))
+        pen_r.setWidth(2)
+        painter.setPen(pen_r)
+        painter.drawLine(int(ex), margin, int(ex), height - margin)
+
+    painter.end()
+    return pixmap
 
 
 class EventThumbWidget(QFrame):
@@ -139,6 +217,35 @@ class EventGallery(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         
+        # Toolbar with refresh button
+        from PySide6.QtWidgets import QHBoxLayout
+        toolbar = QHBoxLayout()
+        toolbar.setContentsMargins(5, 5, 5, 0)
+        
+        self.refresh_btn = QPushButton("⟳ Refresh Thumbnails")
+        self.refresh_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #2196F3;
+                color: white;
+                font-weight: bold;
+                padding: 5px 15px;
+                border: 1px solid #1976D2;
+                border-radius: 3px;
+            }
+            QPushButton:hover {
+                background-color: #1976D2;
+            }
+        """)
+        self.refresh_btn.clicked.connect(self._rebuild_gallery)
+        toolbar.addWidget(self.refresh_btn)
+        
+        self.status_label = QLabel("")
+        self.status_label.setStyleSheet("color: #666; font-size: 10px;")
+        toolbar.addWidget(self.status_label)
+        toolbar.addStretch()
+        
+        layout.addLayout(toolbar)
+        
         # Scroll area
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -167,11 +274,18 @@ class EventGallery(QWidget):
         
         self._rebuild_gallery()
     
+    def update_events(self, events: list):
+        """Update event list without rebuilding (call refresh to re-render).
+        
+        Args:
+            events: Updated list of Event objects
+        """
+        self.events = events
+        self.status_label.setText(f"{len(events)} events (stale — click Refresh)")
+    
     def _rebuild_gallery(self):
-        """Rebuild gallery thumbnails."""
+        """Rebuild gallery thumbnails using pre-rendered pixmaps."""
         print(f"  EventGallery._rebuild_gallery: {len(self.events) if self.events else 0} events")
-        print(f"    NOTE: Gallery thumbnails temporarily disabled due to performance issues")
-        print(f"    Using simple list view instead")
         
         # Clear existing
         for thumb in self.thumb_widgets:
@@ -182,46 +296,64 @@ class EventGallery(QWidget):
             print("    No events or timestamp, skipping gallery")
             return
         
-        # TEMPORARY: Use simple text labels instead of thumbnails with plots
-        # Creating 50+ pyqtgraph PlotWidgets causes crashes
-        n_cols = 2
+        n_cols = 3
         n_to_show = min(100, len(self.events))
-        print(f"    Creating {n_to_show} event labels...")
+        print(f"    Rendering {n_to_show} thumbnail pixmaps...")
         
         try:
             for i, event in enumerate(self.events[:n_to_show]):
-                # Create simple label widget instead of thumbnail
-                label = QLabel()
-                label.setFrameStyle(QFrame.Box | QFrame.Plain)
-                label.setLineWidth(1)
-                label.setFixedHeight(60)
-                label.setWordWrap(True)
-                label.setStyleSheet("padding: 5px; background-color: white;")
-                
-                # Event info text
-                info_text = f"Event #{i+1}: {event.event_id[:8]}...\n"
-                info_text += f"Label: {event.label_user or 'Unlabeled'}\n"
+                # Container frame
+                frame = QFrame()
+                frame.setFrameStyle(QFrame.Box | QFrame.Plain)
+                frame.setLineWidth(1)
+                frame.setFixedSize(200, 150)
+                frame_layout = QVBoxLayout(frame)
+                frame_layout.setContentsMargins(2, 2, 2, 2)
+                frame_layout.setSpacing(1)
+
+                # Info label
+                label_text = f"#{i+1} "
+                if event.label_user:
+                    label_text += f"{event.label_user} | "
                 if event.features:
-                    info_text += f"Δmass: {event.features.delta_mass_g:.2f}g, "
-                    info_text += f"Duration: {event.duration_s():.1f}s"
-                
-                label.setText(info_text)
-                label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
-                
+                    label_text += f"{event.features.delta_mass_g:.2f}g {event.duration_s():.1f}s"
+                info_label = QLabel(label_text)
+                info_label.setStyleSheet("font-size: 15px; font-weight: bold; background: transparent;")
+                frame_layout.addWidget(info_label)
+
+                # Render trace to pixmap
+                pixmap = _render_thumb_pixmap(self.timestamp, self.mass, event)
+                img_label = QLabel()
+                img_label.setPixmap(pixmap)
+                img_label.setScaledContents(True)
+                frame_layout.addWidget(img_label, stretch=1)
+
+                # Style by label
+                if event.label_user == "urine":
+                    bg = "rgba(255, 176, 0, 0.35)"
+                elif event.label_user == "feces":
+                    bg = "rgba(92, 46, 0, 0.28)"
+                elif event.label_user == "bad":
+                    bg = "lightcoral"
+                else:
+                    bg = "rgba(128, 128, 128, 0.15)"
+                frame.setStyleSheet(f"QFrame {{ background-color: {bg}; }}")
+
                 # Make clickable
-                label.mousePressEvent = lambda evt, eid=event.event_id: self.event_selected.emit(eid)
-                
+                frame.mousePressEvent = lambda evt, eid=event.event_id: self.event_selected.emit(eid)
+
                 row = i // n_cols
                 col = i % n_cols
-                self.grid_layout.addWidget(label, row, col)
-                self.thumb_widgets.append(label)
+                self.grid_layout.addWidget(frame, row, col)
+                self.thumb_widgets.append(frame)
             
-            # Add spacer at end
             self.grid_layout.setRowStretch(len(self.events) // n_cols + 1, 1)
-            print(f"    Gallery complete: {len(self.thumb_widgets)} event labels created")
+            self.status_label.setText(f"{len(self.thumb_widgets)} events shown")
+            print(f"    Gallery complete: {len(self.thumb_widgets)} thumbnails rendered")
             
         except Exception as e:
-            print(f"    ERROR creating event labels: {e}")
+            self.status_label.setText(f"Error: {e}")
+            print(f"    ERROR creating thumbnails: {e}")
             import traceback
             traceback.print_exc()
             raise
@@ -238,18 +370,23 @@ class EventGallery(QWidget):
             if i >= len(self.events):
                 break
             
-            is_selected = (self.events[i].event_id == event_id)
+            event = self.events[i]
+            is_selected = (event.event_id == event_id)
             
-            # Since we're using simple QLabels now, highlight with background color
-            if isinstance(thumb, QLabel):
-                if is_selected:
-                    thumb.setStyleSheet("padding: 5px; background-color: lightblue; border: 2px solid blue;")
-                else:
-                    thumb.setStyleSheet("padding: 5px; background-color: white;")
+            if is_selected:
+                thumb.setStyleSheet("QFrame { background-color: lightblue; border: 3px solid blue; }")
+                thumb.setLineWidth(3)
             else:
-                # For future when we have proper thumbnail widgets
-                if hasattr(thumb, 'set_selected'):
-                    thumb.set_selected(is_selected)
+                if event.label_user == "urine":
+                    bg = "rgba(255, 176, 0, 0.35)"
+                elif event.label_user == "feces":
+                    bg = "rgba(92, 46, 0, 0.28)"
+                elif event.label_user == "bad":
+                    bg = "lightcoral"
+                else:
+                    bg = "rgba(128, 128, 128, 0.15)"
+                thumb.setStyleSheet(f"QFrame {{ background-color: {bg}; }}")
+                thumb.setLineWidth(1)
     
     def clear(self):
         """Clear gallery."""
