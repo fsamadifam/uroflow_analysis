@@ -518,6 +518,7 @@ class MainWindow(QMainWindow):
             # Update event gallery
             print("  Updating event gallery...")
             try:
+                self.event_gallery.set_export_base_name(self.project.input_csv_path)
                 self.event_gallery.set_data(self.timestamp, self.mass, self.project.events)
             except Exception as e:
                 print(f"  ERROR updating gallery: {e}")
@@ -1423,6 +1424,7 @@ class MainWindow(QMainWindow):
         
         # Update gallery
         try:
+            self.event_gallery.set_export_base_name(self.project.input_csv_path)
             self.event_gallery.set_data(self.timestamp, self.mass, self.project.events)
         except Exception as e:
             print(f"Warning: Could not update gallery: {e}")

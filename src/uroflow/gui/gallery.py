@@ -2,12 +2,14 @@
 
 import numpy as np
 import pyqtgraph as pg
+from datetime import datetime
+from pathlib import Path
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QScrollArea, QGridLayout,
-    QLabel, QPushButton, QFrame
+    QLabel, QPushButton, QFrame, QFileDialog, QMessageBox
 )
-from PySide6.QtCore import Signal, Qt, QPointF
-from PySide6.QtGui import QColor, QPixmap, QPainter, QPen, QPolygonF
+from PySide6.QtCore import Signal, Qt, QPointF, QRect
+from PySide6.QtGui import QColor, QPixmap, QPainter, QPen, QPolygonF, QFont
 
 from uroflow.core.types import Event
 
@@ -209,6 +211,7 @@ class EventGallery(QWidget):
         self.events = []
         self.thumb_widgets = []
         self.selected_event_id = None
+        self.export_base_name = ""
         
         self._setup_ui()
     
@@ -238,6 +241,23 @@ class EventGallery(QWidget):
         """)
         self.refresh_btn.clicked.connect(self._rebuild_gallery)
         toolbar.addWidget(self.refresh_btn)
+
+        self.save_gallery_btn = QPushButton("Save Gallery")
+        self.save_gallery_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #4CAF50;
+                color: white;
+                font-weight: bold;
+                padding: 5px 15px;
+                border: 1px solid #388E3C;
+                border-radius: 3px;
+            }
+            QPushButton:hover {
+                background-color: #388E3C;
+            }
+        """)
+        self.save_gallery_btn.clicked.connect(self._save_gallery_image)
+        toolbar.addWidget(self.save_gallery_btn)
         
         self.status_label = QLabel("")
         self.status_label.setStyleSheet("color: #666; font-size: 10px;")
@@ -273,6 +293,13 @@ class EventGallery(QWidget):
         self.events = events
         
         self._rebuild_gallery()
+
+    def set_export_base_name(self, csv_path: str):
+        """Set base filename (derived from CSV) used for gallery PNG export."""
+        if not csv_path:
+            self.export_base_name = ""
+            return
+        self.export_base_name = Path(csv_path).stem
     
     def update_events(self, events: list):
         """Update event list without rebuilding (call refresh to re-render).
@@ -394,3 +421,100 @@ class EventGallery(QWidget):
             thumb.deleteLater()
         self.thumb_widgets.clear()
         self.events = []
+
+    def _save_gallery_image(self):
+        """Save a high-clarity gallery PNG with export-only layout settings."""
+        if not self.events:
+            QMessageBox.information(self, "Save Gallery", "No gallery thumbnails to save.")
+            return
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        if self.export_base_name:
+            default_name = f"{self.export_base_name}_gallery.png"
+        else:
+            default_name = f"event_gallery_{timestamp}.png"
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save Gallery Image",
+            default_name,
+            "PNG Images (*.png)"
+        )
+
+        if not file_path:
+            return
+
+        n_events = min(100, len(self.events))
+
+        # Export-only layout: up to 10 columns for fewer rows in PNG output.
+        export_cols = min(10, n_events) if n_events > 0 else 1
+        frame_w = 260
+        frame_h = 190
+        label_h = 40
+        margin = 10
+        row_gap = 10
+        col_gap = 10
+
+        n_rows = int(np.ceil(n_events / export_cols))
+        canvas_w = export_cols * frame_w + (export_cols + 1) * col_gap
+        canvas_h = n_rows * frame_h + (n_rows + 1) * row_gap
+
+        pixmap = QPixmap(canvas_w, canvas_h)
+        pixmap.fill(QColor(255, 255, 255))
+
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.Antialiasing)
+
+        for i, event in enumerate(self.events[:n_events]):
+            row = i // export_cols
+            col = i % export_cols
+            x = col_gap + col * (frame_w + col_gap)
+            y = row_gap + row * (frame_h + row_gap)
+
+            if event.label_user == "urine":
+                bg = QColor(255, 176, 0, 90)
+            elif event.label_user == "feces":
+                bg = QColor(92, 46, 0, 70)
+            elif event.label_user == "bad":
+                bg = QColor(240, 128, 128, 120)
+            else:
+                bg = QColor(128, 128, 128, 45)
+
+            painter.fillRect(QRect(x, y, frame_w, frame_h), bg)
+            painter.setPen(QPen(QColor(140, 140, 140)))
+            painter.drawRect(QRect(x, y, frame_w, frame_h))
+
+            label_text = f"#{i+1} "
+            if event.label_user:
+                label_text += f"{event.label_user} | "
+            if event.features:
+                label_text += f"{event.features.delta_mass_g:.2f}g {event.duration_s():.1f}s"
+            painter.setPen(QPen(QColor(20, 20, 20)))
+            label_font = QFont()
+            label_font.setPointSize(13)
+            label_font.setBold(True)
+            painter.setFont(label_font)
+            painter.drawText(
+                QRect(x + margin, y + 4, frame_w - 2 * margin, label_h),
+                Qt.AlignLeft | Qt.AlignVCenter | Qt.TextWordWrap,
+                label_text
+            )
+
+            thumb = _render_thumb_pixmap(
+                self.timestamp,
+                self.mass,
+                event,
+                width=frame_w - 2 * margin,
+                height=frame_h - label_h - margin
+            )
+            painter.drawPixmap(x + margin, y + label_h, thumb)
+
+        painter.end()
+        if pixmap.isNull():
+            QMessageBox.warning(self, "Save Gallery", "Could not capture gallery image.")
+            return
+
+        if pixmap.save(file_path, "PNG"):
+            self.status_label.setText(f"Saved gallery: {file_path}")
+            QMessageBox.information(self, "Save Gallery", "Gallery image saved successfully.")
+        else:
+            QMessageBox.critical(self, "Save Gallery", "Failed to save gallery image.")
