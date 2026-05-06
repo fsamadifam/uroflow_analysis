@@ -109,6 +109,7 @@ def _project_to_dict(project: Project) -> dict:
         'session_config_snapshot': project.session_config_snapshot,
         'detection_params': asdict(project.detection_params),
         'events': [_event_to_dict(e) for e in project.events],
+        'video_folder_path': project.video_folder_path,
         'created_at': project.created_at,
         'last_modified': project.last_modified,
     }
@@ -138,6 +139,7 @@ def _dict_to_project(project_dict: dict) -> Project:
         session_config_snapshot=project_dict['session_config_snapshot'],
         detection_params=detection_params,
         events=events,
+        video_folder_path=project_dict.get('video_folder_path'),
         created_at=project_dict['created_at'],
         last_modified=project_dict['last_modified'],
     )

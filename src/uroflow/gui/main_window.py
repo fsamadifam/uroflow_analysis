@@ -9,11 +9,13 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, Signal, QTimer, QObject
 from PySide6.QtGui import QAction, QKeySequence
 from pathlib import Path
+from typing import Optional
 import time
 import numpy as np
 
 from uroflow.core.types import Project, DetectionParams
 from uroflow.core.project_io import load_project, save_project, autosave_project
+from uroflow.core.video import find_sibling_videos_folder, get_video_files
 from uroflow.io.load_csv import load_uroflow_csv, find_acquisition_event_windows
 from uroflow.io.load_config import load_session_config
 from uroflow.core.segments import find_segments_and_gaps
@@ -190,6 +192,12 @@ class MainWindow(QMainWindow):
         
         file_menu.addSeparator()
         
+        video_folder_action = QAction("Set &Video Folder...", self)
+        video_folder_action.triggered.connect(self._select_video_folder_dialog)
+        file_menu.addAction(video_folder_action)
+        
+        file_menu.addSeparator()
+        
         quit_action = QAction("&Quit", self)
         quit_action.setShortcut(QKeySequence.Quit)
         quit_action.triggered.connect(self.close)
@@ -238,6 +246,11 @@ class MainWindow(QMainWindow):
         
         self.unlabeled_count_label = QLabel("0 unlabeled")
         self.status_bar.addPermanentWidget(self.unlabeled_count_label)
+        
+        self.status_bar.addPermanentWidget(QLabel("|"))
+        
+        self.video_folder_label = QLabel("Video: not set")
+        self.status_bar.addPermanentWidget(self.video_folder_label)
     
     def _setup_autosave_timer(self):
         """Setup autosave timer."""
@@ -279,6 +292,9 @@ class MainWindow(QMainWindow):
             )
             progress.setValue(3)
             
+            # Populate wall_clock_time for events that don't have it (backwards compatibility)
+            self._populate_event_wall_clock_times()
+            
             # Update UI
             progress.setLabelText("Updating UI...")
             self.last_save_time = time.time()
@@ -288,15 +304,64 @@ class MainWindow(QMainWindow):
             self.status_label.setText(f"Loaded: {Path(project_path).name}")
             self.project_loaded.emit()
             
+            # Prompt for video folder if not set
+            if not self.project.video_folder_path:
+                self._prompt_video_folder_for_existing_project()
+            
         except Exception as e:
             QMessageBox.critical(self, "Error Loading Project", str(e))
     
-    def create_new_project(self, csv_path: str, config_path: str):
-        """Create new project from CSV and config."""
+    def _prompt_video_folder_for_existing_project(self):
+        """Prompt user to select video folder for an existing project without one."""
+        # Check for sibling videos folder first
+        default_folder = find_sibling_videos_folder(self.project.input_csv_path)
+        
+        if default_folder:
+            reply = QMessageBox.question(
+                self, "Select Video Folder",
+                f"This project has no video folder set.\n\n"
+                f"Found videos folder:\n{default_folder}\n\n"
+                f"Use this folder?",
+                QMessageBox.Yes | QMessageBox.No | QMessageBox.Ignore,
+                QMessageBox.Yes
+            )
+            
+            if reply == QMessageBox.Yes:
+                self.set_video_folder(default_folder)
+                return
+            elif reply == QMessageBox.Ignore:
+                return
+        
+        # Ask if they want to select a folder
+        reply = QMessageBox.question(
+            self, "Select Video Folder",
+            "This project has no video folder set.\n\n"
+            "Would you like to select one now?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        
+        if reply == QMessageBox.Yes:
+            folder = QFileDialog.getExistingDirectory(
+                self, "Select Video Folder",
+                str(Path(self.project.input_csv_path).parent)
+            )
+            if folder:
+                self.set_video_folder(folder)
+    
+    def create_new_project(self, csv_path: str, config_path: str, video_folder: Optional[str] = None):
+        """Create new project from CSV and config.
+        
+        Args:
+            csv_path: Path to uroflow CSV file
+            config_path: Path to session config JSON file
+            video_folder: Optional path to video folder
+        """
         print(f"\n{'='*60}")
         print(f"create_new_project called")
         print(f"  CSV: {csv_path}")
         print(f"  Config: {config_path}")
+        print(f"  Video folder: {video_folder}")
         print(f"{'='*60}\n")
         
         try:
@@ -362,7 +427,7 @@ class MainWindow(QMainWindow):
                 progress.setLabelText("Computing features...")
                 QApplication.processEvents()
                 from uroflow.core.features import compute_features_for_events
-                events = compute_features_for_events(events, timestamp, mass, segments)
+                events = compute_features_for_events(events, timestamp, mass, segments, metadata)
                 print(f"Computed features for {len(events)} events")
             
             progress.setValue(5)
@@ -374,7 +439,8 @@ class MainWindow(QMainWindow):
                 session_config_path=str(Path(config_path).absolute()),
                 session_config_snapshot=config,
                 detection_params=detection_params,
-                events=events
+                events=events,
+                video_folder_path=video_folder
             )
             
             self.timestamp = timestamp
@@ -466,6 +532,17 @@ class MainWindow(QMainWindow):
                 import traceback
                 traceback.print_exc()
             
+            # Update video folder status
+            print("  Updating video folder status...")
+            self._update_video_folder_status()
+            
+            # Notify event widget about video folder
+            if self.project.video_folder_path:
+                self.event_widget.set_video_folder(
+                    self.project.video_folder_path,
+                    self.project.session_config_snapshot
+                )
+            
             # Select first event if available
             if self.project.events:
                 print(f"  Selecting first event: {self.project.events[0].event_id}")
@@ -484,6 +561,32 @@ class MainWindow(QMainWindow):
             print("  All done! GUI should be visible and responsive.")
             print(f"{'='*60}\n")
     
+    def _populate_event_wall_clock_times(self):
+        """Populate wall_clock_time for events that don't have it.
+        
+        This provides backwards compatibility for projects created before
+        wall_clock_time was populated on events.
+        """
+        if not self.project or not self.metadata:
+            return
+        
+        wall_clock_times = self.metadata.get('wall_clock_time')
+        if wall_clock_times is None:
+            return
+        
+        n_updated = 0
+        for event in self.project.events:
+            if not event.wall_clock_time:
+                idx = event.start_idx
+                if 0 <= idx < len(wall_clock_times):
+                    wct = wall_clock_times[idx]
+                    if wct:
+                        event.wall_clock_time = str(wct)
+                        n_updated += 1
+        
+        if n_updated > 0:
+            print(f"  Populated wall_clock_time for {n_updated} events")
+    
     def new_project_dialog(self):
         """Show new project dialog."""
         csv_path, _ = QFileDialog.getOpenFileName(
@@ -496,7 +599,126 @@ class MainWindow(QMainWindow):
             )
             
             if config_path:
-                self.create_new_project(csv_path, config_path)
+                # Ask for optional video folder
+                video_folder = self._prompt_video_folder(csv_path)
+                self.create_new_project(csv_path, config_path, video_folder)
+    
+    def _prompt_video_folder(self, csv_path: str) -> Optional[str]:
+        """Prompt user to select video folder (optional).
+        
+        Pre-fills with sibling 'videos' folder if it exists.
+        
+        Args:
+            csv_path: Path to CSV file (for finding sibling folder)
+            
+        Returns:
+            Video folder path or None if skipped
+        """
+        # Check for sibling videos folder
+        default_folder = find_sibling_videos_folder(csv_path)
+        
+        if default_folder:
+            # Ask if they want to use the detected folder
+            reply = QMessageBox.question(
+                self, "Video Folder Found",
+                f"Found videos folder:\n{default_folder}\n\nUse this folder for event videos?",
+                QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel,
+                QMessageBox.Yes
+            )
+            
+            if reply == QMessageBox.Yes:
+                return default_folder
+            elif reply == QMessageBox.Cancel:
+                return None
+            # If No, continue to folder selection dialog
+        
+        # Show folder selection dialog
+        reply = QMessageBox.question(
+            self, "Select Video Folder",
+            "Would you like to select a video folder?\n\n"
+            "(You can skip this and set it later)",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        
+        if reply == QMessageBox.Yes:
+            folder = QFileDialog.getExistingDirectory(
+                self, "Select Video Folder",
+                str(Path(csv_path).parent) if csv_path else ""
+            )
+            return folder if folder else None
+        
+        return None
+    
+    def _update_video_folder_status(self):
+        """Update the video folder status label."""
+        if self.project and self.project.video_folder_path:
+            folder_path = Path(self.project.video_folder_path)
+            if folder_path.exists():
+                # Count video files
+                videos = get_video_files(str(folder_path))
+                n_videos = len(videos)
+                self.video_folder_label.setText(f"Video: {folder_path.name} ({n_videos} files)")
+            else:
+                self.video_folder_label.setText(f"Video: {folder_path.name} (not found)")
+        else:
+            self.video_folder_label.setText("Video: not set")
+    
+    def set_video_folder(self, folder_path: Optional[str]):
+        """Set the video folder for the current project.
+        
+        Args:
+            folder_path: Path to video folder, or None to clear
+        """
+        if not self.project:
+            return
+        
+        self.project.video_folder_path = folder_path
+        self.project.update_modified()
+        self._update_video_folder_status()
+        
+        # Notify event widget about video folder change
+        if hasattr(self, 'event_widget'):
+            self.event_widget.set_video_folder(
+                folder_path,
+                self.project.session_config_snapshot if self.project else None
+            )
+    
+    def _select_video_folder_dialog(self):
+        """Show dialog to select or change video folder."""
+        if not self.project:
+            QMessageBox.warning(self, "No Project", "Please load a project first.")
+            return
+        
+        # Show current folder if set
+        current_folder = self.project.video_folder_path or ""
+        
+        if current_folder:
+            reply = QMessageBox.question(
+                self, "Change Video Folder",
+                f"Current video folder:\n{current_folder}\n\n"
+                "Do you want to change it?",
+                QMessageBox.Yes | QMessageBox.No | QMessageBox.Reset,
+                QMessageBox.No
+            )
+            
+            if reply == QMessageBox.No:
+                return
+            elif reply == QMessageBox.Reset:
+                self.set_video_folder(None)
+                self.status_label.setText("Video folder cleared")
+                return
+        
+        # Show folder selection dialog
+        folder = QFileDialog.getExistingDirectory(
+            self, "Select Video Folder",
+            current_folder or str(Path(self.project.input_csv_path).parent)
+        )
+        
+        if folder:
+            self.set_video_folder(folder)
+            videos = get_video_files(folder)
+            self.status_label.setText(f"Video folder set: {len(videos)} video files found")
     
     def open_project_dialog(self):
         """Show open project dialog."""
@@ -737,7 +959,7 @@ class MainWindow(QMainWindow):
             
             # Recompute features for this event (now uses updated indices)
             from uroflow.core.features import compute_features_for_events
-            compute_features_for_events([event], self.timestamp, self.mass, self.segments)
+            compute_features_for_events([event], self.timestamp, self.mass, self.segments, self.metadata)
             
             # Update just this event in overview plot (faster, avoids crash)
             self.overview_plot.update_event_bounds(event_id, new_start_time, new_end_time)
@@ -797,8 +1019,8 @@ class MainWindow(QMainWindow):
             notes="Manually created event"
         )
         
-        # Compute features
-        compute_features_for_events([new_event], self.timestamp, self.mass, self.segments)
+        # Compute features (also populates wall_clock_time)
+        compute_features_for_events([new_event], self.timestamp, self.mass, self.segments, self.metadata)
         
         # Add to project
         self.project.events.append(new_event)
@@ -1004,7 +1226,7 @@ class MainWindow(QMainWindow):
             all_events = resolve_overlaps(all_events)
             print(f"After overlap resolution: {len(all_events)} events")
             all_events = compute_features_for_events(
-                all_events, self.timestamp, self.mass, self.segments
+                all_events, self.timestamp, self.mass, self.segments, self.metadata
             )
             print(f"Features computed for {len(all_events)} events")
             

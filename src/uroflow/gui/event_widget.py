@@ -2,12 +2,17 @@
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
-    QTableView, QLabel, QCheckBox, QComboBox, QLineEdit, QApplication
+    QTableView, QLabel, QCheckBox, QComboBox, QLineEdit, QApplication,
+    QMessageBox, QMenu
 )
 from PySide6.QtCore import Signal, Qt
+from typing import Optional
 
 from uroflow.gui.table_model import EventTableModel, EventFilterProxyModel
 from uroflow.gui.label_delegate import LabelDelegate
+from uroflow.core.video import (
+    get_video_files, find_matching_videos, open_video_file
+)
 
 
 class EventWidget(QWidget):
@@ -24,6 +29,11 @@ class EventWidget(QWidget):
         self.proxy_model = EventFilterProxyModel()
         self.proxy_model.setSourceModel(self.table_model)
         self.metadata = None
+        
+        # Video folder and config for video matching
+        self.video_folder_path: Optional[str] = None
+        self.session_config: Optional[dict] = None
+        self._video_files = []  # Cached list of (path, datetime) tuples
         
         self._setup_ui()
     
@@ -95,6 +105,15 @@ class EventWidget(QWidget):
         self.next_button = QPushButton("Next →")
         self.next_button.clicked.connect(self.next_event_requested.emit)
         nav_layout.addWidget(self.next_button)
+        
+        nav_layout.addSpacing(20)
+        
+        # Open Event Video button
+        self.video_button = QPushButton("Open Event Video")
+        self.video_button.setToolTip("Open video file for the selected event")
+        self.video_button.clicked.connect(self._on_open_video_clicked)
+        self.video_button.setEnabled(False)  # Disabled until video folder is set
+        nav_layout.addWidget(self.video_button)
         
         nav_layout.addStretch()
         
@@ -309,3 +328,146 @@ class EventWidget(QWidget):
         """Refresh table to show updated event data."""
         # Force table to refresh all data
         self.table_model.layoutChanged.emit()
+    
+    def set_video_folder(self, folder_path: Optional[str], session_config: Optional[dict] = None):
+        """Set the video folder for event video matching.
+        
+        Args:
+            folder_path: Path to video folder, or None to clear
+            session_config: Session config dict with start_date and start_time
+        """
+        self.video_folder_path = folder_path
+        self.session_config = session_config
+        
+        # Cache video files list
+        if folder_path:
+            self._video_files = get_video_files(folder_path)
+            self.video_button.setEnabled(True)
+            self.video_button.setToolTip(f"Open video ({len(self._video_files)} files available)")
+        else:
+            self._video_files = []
+            self.video_button.setEnabled(False)
+            self.video_button.setToolTip("No video folder set")
+    
+    def _on_open_video_clicked(self):
+        """Handle Open Event Video button click."""
+        # Get selected event
+        event_id = self.get_selected_event_id()
+        if not event_id:
+            QMessageBox.information(self, "No Selection", "Please select an event first.")
+            return
+        
+        # Find the event object
+        row = self.table_model.find_event_row(event_id)
+        if row < 0:
+            return
+        
+        event = self.table_model.get_event_at_row(row)
+        if not event:
+            return
+        
+        self._open_video_for_event(event)
+    
+    def _open_video_for_event(self, event):
+        """Find and open video for the given event.
+        
+        Args:
+            event: Event object to find video for
+        """
+        if not self.video_folder_path or not self._video_files:
+            QMessageBox.information(
+                self, "No Videos",
+                "No video folder is set.\n\nUse File → Set Video Folder to configure."
+            )
+            return
+        
+        if not self.session_config:
+            QMessageBox.warning(
+                self, "Missing Config",
+                "Session config not available for video matching."
+            )
+            return
+        
+        # Get session start date/time
+        start_date = self.session_config.get('start_date', '')
+        start_time = self.session_config.get('start_time', '')
+        
+        if not start_date or not start_time:
+            QMessageBox.warning(
+                self, "Missing Config",
+                "Session start date/time not found in config."
+            )
+            return
+        
+        if not event.wall_clock_time:
+            QMessageBox.information(
+                self, "No Wall Clock Time",
+                "This event has no wall clock time recorded.\n\n"
+                "Cannot match to video without timestamp."
+            )
+            return
+        
+        # Find matching videos
+        # Videos are saved ~5-30 seconds AFTER the event occurs
+        matches = find_matching_videos(
+            event,
+            self._video_files,
+            start_date,
+            start_time,
+            max_delay_after_event_s=60.0,  # Video saved up to 60s after event
+            max_time_before_event_s=5.0     # Edge case: video saved slightly before
+        )
+        
+        if not matches:
+            QMessageBox.information(
+                self, "No Video Found",
+                f"No video found near event time: {event.wall_clock_time}\n\n"
+                f"Event occurred at {event.wall_clock_time}, but no video\n"
+                f"was recorded within the matching window."
+            )
+            return
+        
+        if len(matches) == 1:
+            # Single match - open immediately
+            video_path, video_dt, offset = matches[0]
+            success, message = open_video_file(str(video_path))
+            if not success:
+                QMessageBox.warning(self, "Failed to Open Video", message)
+        
+        elif len(matches) <= 3:
+            # 2-3 matches - show small popup menu
+            menu = QMenu(self)
+            menu.setTitle("Select Video")
+            
+            for video_path, video_dt, offset in matches:
+                offset_str = f"+{offset:.0f}s" if offset >= 0 else f"{offset:.0f}s"
+                action_text = f"{video_path.name} ({offset_str})"
+                action = menu.addAction(action_text)
+                action.setData(str(video_path))
+            
+            # Show menu below button
+            action = menu.exec_(self.video_button.mapToGlobal(
+                self.video_button.rect().bottomLeft()
+            ))
+            
+            if action:
+                video_path = action.data()
+                success, message = open_video_file(video_path)
+                if not success:
+                    QMessageBox.warning(self, "Failed to Open Video", message)
+        
+        else:
+            # More than 3 matches - show warning and open first one
+            video_path, video_dt, offset = matches[0]
+            reply = QMessageBox.question(
+                self, "Multiple Videos",
+                f"Found {len(matches)} potential videos.\n\n"
+                f"Open the closest match?\n{video_path.name}",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.Yes
+            )
+            
+            if reply == QMessageBox.Yes:
+                success, message = open_video_file(str(video_path))
+                if not success:
+                    QMessageBox.warning(self, "Failed to Open Video", message)

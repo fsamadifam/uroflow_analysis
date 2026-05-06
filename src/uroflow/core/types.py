@@ -183,6 +183,9 @@ class Project:
     # Events (auto-detected + manual + edited)
     events: list[Event] = field(default_factory=list)
     
+    # Video folder path (optional)
+    video_folder_path: Optional[str] = None
+    
     # Metadata
     created_at: str = field(default_factory=lambda: datetime.now().isoformat())
     last_modified: str = field(default_factory=lambda: datetime.now().isoformat())

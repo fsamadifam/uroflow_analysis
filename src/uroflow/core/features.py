@@ -1,7 +1,7 @@
 """Feature computation for events (for triage, not classification)."""
 
 import numpy as np
-from typing import List
+from typing import List, Optional
 from uroflow.core.types import Event, EventFeatures, Segment
 from uroflow.core.segments import check_event_crosses_gap
 
@@ -82,7 +82,8 @@ def compute_event_features(event: Event,
 def compute_features_for_events(events: List[Event],
                                 timestamp: np.ndarray,
                                 mass: np.ndarray,
-                                segments: List[Segment]) -> List[Event]:
+                                segments: List[Segment],
+                                metadata: Optional[dict] = None) -> List[Event]:
     """Compute features for all events in place.
     
     Args:
@@ -90,6 +91,7 @@ def compute_features_for_events(events: List[Event],
         timestamp: Full time array
         mass: Full mass array
         segments: List of Segment objects
+        metadata: Optional metadata dict with wall_clock_time array
         
     Returns:
         Same list of events with features populated
@@ -100,8 +102,38 @@ def compute_features_for_events(events: List[Event],
         # Set needs_manual flag if crosses gap or has low coverage
         if event.features.crosses_gap or event.features.coverage_frac < 0.5:
             event.needs_manual = True
+        
+        # Populate wall_clock_time if not already set and metadata available
+        if not event.wall_clock_time and metadata:
+            wall_clock_time = _get_wall_clock_for_event(event, metadata)
+            if wall_clock_time:
+                event.wall_clock_time = wall_clock_time
     
     return events
+
+
+def _get_wall_clock_for_event(event: Event, metadata: dict) -> str:
+    """Get wall clock time string for an event from metadata.
+    
+    Args:
+        event: Event object
+        metadata: Metadata dict with wall_clock_time array
+        
+    Returns:
+        Wall clock time string or empty string if not available
+    """
+    if 'wall_clock_time' not in metadata:
+        return ""
+    
+    wall_clock_times = metadata['wall_clock_time']
+    
+    # Use start_idx to get the wall clock time
+    idx = event.start_idx
+    if 0 <= idx < len(wall_clock_times):
+        wct = wall_clock_times[idx]
+        return str(wct) if wct else ""
+    
+    return ""
 
 
 def _compute_delta_mass(timestamp: np.ndarray,
