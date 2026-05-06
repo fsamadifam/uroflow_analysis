@@ -86,14 +86,11 @@ class InfoPanel(QWidget):
         self.peak_slope_label = QLabel("—")
         features_layout.addRow("Peak Slope:", self.peak_slope_label)
         
+        self.mean_slope_label = QLabel("—")
+        features_layout.addRow("Mean Slope:", self.mean_slope_label)
+        
         self.oscillation_label = QLabel("—")
         features_layout.addRow("Oscillation Score:", self.oscillation_label)
-        
-        self.plateau_label = QLabel("—")
-        features_layout.addRow("Plateau Stability:", self.plateau_label)
-        
-        self.coverage_label = QLabel("—")
-        features_layout.addRow("Coverage:", self.coverage_label)
         
         features_group.setLayout(features_layout)
         content_layout.addWidget(features_group)
@@ -138,8 +135,9 @@ class InfoPanel(QWidget):
             self._clear_info()
             return
         
-        # Event Identity
-        self.event_id_label.setText(event.event_id)
+        # Event Identity - show short UUID for now (human-friendly ID will be shown in table)
+        short_id = event.event_id[:8] if event.event_id else "—"
+        self.event_id_label.setText(f"{short_id}... (UUID)")
         self.source_label.setText(event.source or "—")
         self.label_label.setText(event.label_user or "Unlabeled")
         self.locked_label.setText("Yes" if event.locked else "No")
@@ -155,15 +153,13 @@ class InfoPanel(QWidget):
             f = event.features
             self.delta_mass_label.setText(f"{f.delta_mass_g:.4f} g" if f.delta_mass_g is not None else "—")
             self.peak_slope_label.setText(f"{f.peak_slope_g_per_s:.4f} g/s" if f.peak_slope_g_per_s is not None else "—")
+            self.mean_slope_label.setText(f"{f.mean_slope_g_per_s:.4f} g/s" if f.mean_slope_g_per_s is not None else "—")
             self.oscillation_label.setText(f"{f.oscillation_score:.4f}" if f.oscillation_score is not None else "—")
-            self.plateau_label.setText(f"{f.plateau_stability:.4f}" if f.plateau_stability is not None else "—")
-            self.coverage_label.setText(f"{f.coverage_frac*100:.1f}%" if f.coverage_frac is not None else "—")
         else:
             self.delta_mass_label.setText("—")
             self.peak_slope_label.setText("—")
+            self.mean_slope_label.setText("—")
             self.oscillation_label.setText("—")
-            self.plateau_label.setText("—")
-            self.coverage_label.setText("—")
         
         # Metadata
         self.created_label.setText(event.created_at or "—")

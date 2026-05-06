@@ -229,8 +229,8 @@ def export_events_csv(events: list[Event], output_path: str):
             'event_id', 'start_idx', 'end_idx', 
             'start_time_s', 'end_time_s', 'duration_s',
             'source', 'locked', 'label_user', 'notes',
-            'delta_mass_g', 'peak_slope_g_per_s', 'oscillation_score',
-            'plateau_stability', 'coverage_frac', 'crosses_gap', 'needs_manual'
+            'delta_mass_g', 'peak_slope_g_per_s', 'mean_slope_g_per_s', 'oscillation_score',
+            'crosses_gap', 'needs_manual'
         ])
         
         # Data rows
@@ -253,13 +253,12 @@ def export_events_csv(events: list[Event], output_path: str):
                 row.extend([
                     event.features.delta_mass_g,
                     event.features.peak_slope_g_per_s,
+                    event.features.mean_slope_g_per_s,
                     event.features.oscillation_score,
-                    event.features.plateau_stability,
-                    event.features.coverage_frac,
                     event.features.crosses_gap,
                 ])
             else:
-                row.extend(['', '', '', '', '', ''])
+                row.extend(['', '', '', '', ''])
             
             row.append(event.needs_manual)
             

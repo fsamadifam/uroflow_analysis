@@ -41,17 +41,14 @@ def compute_event_features(event: Event,
         timestamp, mass, event.start_idx, event.end_idx
     )
     
-    # Compute peak slope
+    # Compute peak slope (sharpness)
     peak_slope_g_per_s = _compute_peak_slope(event_t, event_m)
+    
+    # Compute mean slope (overall behavior)
+    mean_slope_g_per_s = _compute_mean_slope(event_t, event_m, delta_mass_g, duration_s)
     
     # Compute oscillation score
     oscillation_score = _compute_oscillation_score(event_m)
-    
-    # Compute plateau stability
-    plateau_stability = _compute_plateau_stability(event_m)
-    
-    # Compute coverage (fraction of valid samples)
-    coverage_frac = np.sum(np.isfinite(event_m)) / len(event_m) if len(event_m) > 0 else 0.0
     
     # Create features object
     try:
@@ -59,9 +56,8 @@ def compute_event_features(event: Event,
             duration_s=duration_s,
             delta_mass_g=delta_mass_g,
             peak_slope_g_per_s=peak_slope_g_per_s,
+            mean_slope_g_per_s=mean_slope_g_per_s,
             oscillation_score=oscillation_score,
-            plateau_stability=plateau_stability,
-            coverage_frac=coverage_frac,
             crosses_gap=crosses_gap
         )
     except ValueError:
@@ -70,9 +66,8 @@ def compute_event_features(event: Event,
             duration_s=duration_s if np.isfinite(duration_s) else 0.0,
             delta_mass_g=delta_mass_g if np.isfinite(delta_mass_g) else 0.0,
             peak_slope_g_per_s=peak_slope_g_per_s if np.isfinite(peak_slope_g_per_s) else 0.0,
+            mean_slope_g_per_s=mean_slope_g_per_s if np.isfinite(mean_slope_g_per_s) else 0.0,
             oscillation_score=oscillation_score if np.isfinite(oscillation_score) else 0.0,
-            plateau_stability=plateau_stability if np.isfinite(plateau_stability) else 0.0,
-            coverage_frac=coverage_frac if np.isfinite(coverage_frac) else 0.0,
             crosses_gap=True
         )
     
@@ -99,8 +94,8 @@ def compute_features_for_events(events: List[Event],
     for event in events:
         event.features = compute_event_features(event, timestamp, mass, segments)
         
-        # Set needs_manual flag if crosses gap or has low coverage
-        if event.features.crosses_gap or event.features.coverage_frac < 0.5:
+        # Set needs_manual flag if crosses gap
+        if event.features.crosses_gap:
             event.needs_manual = True
         
         # Populate wall_clock_time if not already set and metadata available
@@ -217,6 +212,47 @@ def _compute_peak_slope(timestamp: np.ndarray, mass: np.ndarray, window: int = 5
         return 0.0
 
 
+def _compute_mean_slope(timestamp: np.ndarray, mass: np.ndarray, 
+                        delta_mass_g: float, duration_s: float) -> float:
+    """Compute mean slope for overall behavior assessment.
+    
+    This complements peak_slope by providing a measure of the overall
+    rate of mass change throughout the event.
+    
+    Args:
+        timestamp: Time array for event
+        mass: Mass array for event
+        delta_mass_g: Net mass change (already computed)
+        duration_s: Event duration (already computed)
+        
+    Returns:
+        Mean slope in g/s
+    """
+    # Simple approach: use delta_mass / duration for overall slope
+    if duration_s > 0 and np.isfinite(delta_mass_g):
+        return delta_mass_g / duration_s
+    
+    # Fallback: compute from valid sample differences
+    if len(mass) < 2 or len(timestamp) < 2:
+        return 0.0
+    
+    # Get valid (finite) samples
+    valid_mask = np.isfinite(mass)
+    if np.sum(valid_mask) < 2:
+        return 0.0
+    
+    valid_mass = mass[valid_mask]
+    valid_time = timestamp[valid_mask]
+    
+    # Compute overall slope using linear regression or simple difference
+    if len(valid_mass) >= 2:
+        # Simple approach: (end - start) / (time_end - time_start)
+        slope = (valid_mass[-1] - valid_mass[0]) / (valid_time[-1] - valid_time[0])
+        return float(slope) if np.isfinite(slope) else 0.0
+    
+    return 0.0
+
+
 def _compute_oscillation_score(mass: np.ndarray, window: int = 5) -> float:
     """Compute oscillation score based on sign changes in slope.
     
@@ -254,34 +290,6 @@ def _compute_oscillation_score(mass: np.ndarray, window: int = 5) -> float:
     return float(oscillation_score)
 
 
-def _compute_plateau_stability(mass: np.ndarray, tail_frac: float = 0.3) -> float:
-    """Compute stability in tail window (standard deviation).
-    
-    Lower std → more stable plateau (typical of urine events)
-    Higher std → oscillating (may be artifact)
-    
-    Args:
-        mass: Mass array for event
-        tail_frac: Fraction of event to use for tail (0.3 = last 30%)
-        
-    Returns:
-        Standard deviation in tail window (grams)
-    """
-    if len(mass) < 5:
-        return 0.0
-    
-    # Extract tail window
-    tail_start = int(len(mass) * (1 - tail_frac))
-    tail_mass = mass[tail_start:]
-    
-    # Compute std (ignoring NaN)
-    if len(tail_mass) > 0:
-        std = np.nanstd(tail_mass)
-        return float(std) if np.isfinite(std) else 0.0
-    else:
-        return 0.0
-
-
 def recompute_features_for_event(event: Event,
                                  timestamp: np.ndarray,
                                  mass: np.ndarray,
@@ -297,7 +305,7 @@ def recompute_features_for_event(event: Event,
     event.features = compute_event_features(event, timestamp, mass, segments)
     
     # Update needs_manual flag
-    if event.features.crosses_gap or event.features.coverage_frac < 0.5:
+    if event.features.crosses_gap:
         event.needs_manual = True
     else:
         event.needs_manual = False
@@ -396,12 +404,7 @@ def classify_event_heuristic(event: Event,
     
     print(f"  Event {event.event_id[:8]}: delta_mass={delta_mass:.3f}g, duration={duration:.1f}s, "
           f"peak_slope={peak_slope:.4f}g/s, slope_ratio={slope_ratio:.2f}, "
-          f"oscillation={features.oscillation_score:.3f}, coverage={features.coverage_frac:.2f}")
-    
-    # Skip only for very low coverage
-    if features.coverage_frac < 0.5:
-        print(f"    -> Skipped: low coverage ({features.coverage_frac:.2f})")
-        return ""
+          f"oscillation={features.oscillation_score:.3f}")
     
     # Very high oscillation suggests artifact/noise - don't auto-classify
     if features.oscillation_score > oscillation_threshold:

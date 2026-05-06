@@ -4,7 +4,7 @@ from PySide6.QtCore import Qt, QAbstractTableModel, QModelIndex, QSortFilterProx
 from PySide6.QtGui import QColor
 from typing import List, Optional
 
-from uroflow.core.types import Event
+from uroflow.core.types import Event, get_human_friendly_id
 
 
 class EventTableModel(QAbstractTableModel):
@@ -19,10 +19,11 @@ class EventTableModel(QAbstractTableModel):
     COL_LABEL = 5
     COL_SOURCE = 6
     COL_LOCKED = 7
+    COL_NEEDS_MANUAL = 8
     
     HEADERS = [
         "ID", "Start (s)", "Wall Clock Time", "Duration (s)", "Δ Mass (g)",
-        "Label", "Source", "Locked"
+        "Label", "Source", "Locked", "Needs Manual"
     ]
     
     def __init__(self, parent=None):
@@ -71,9 +72,11 @@ class EventTableModel(QAbstractTableModel):
             return self._get_display_data(event, col)
         
         elif role == Qt.CheckStateRole:
-            # Show checkbox for Locked column
+            # Show checkbox for Locked and Needs Manual columns
             if col == self.COL_LOCKED:
                 return Qt.Checked if event.locked else Qt.Unchecked
+            elif col == self.COL_NEEDS_MANUAL:
+                return Qt.Checked if event.needs_manual else Qt.Unchecked
             return None
         
         elif role == Qt.BackgroundRole:
@@ -98,8 +101,8 @@ class EventTableModel(QAbstractTableModel):
     def _get_display_data(self, event: Event, col: int):
         """Get display string for cell."""
         if col == self.COL_ID:
-            # Show sequential number based on position in sorted list
-            return str(self.events.index(event) + 1)
+            # Show human-friendly ID (E001, E002, etc.) based on position in sorted list
+            return get_human_friendly_id(event, self.events)
         
         elif col == self.COL_START_TIME:
             return f"{event.start_time_s:.1f}"
@@ -140,6 +143,9 @@ class EventTableModel(QAbstractTableModel):
         
         elif col == self.COL_LOCKED:
             return "Yes" if event.locked else "No"
+        
+        elif col == self.COL_NEEDS_MANUAL:
+            return "Yes" if event.needs_manual else "No"
         
         return ""
     
@@ -182,6 +188,8 @@ class EventTableModel(QAbstractTableModel):
             flags |= Qt.ItemIsEditable
         elif index.column() == self.COL_LOCKED:
             flags |= Qt.ItemIsEditable | Qt.ItemIsUserCheckable
+        elif index.column() == self.COL_NEEDS_MANUAL:
+            flags |= Qt.ItemIsEditable | Qt.ItemIsUserCheckable
         
         return flags
     
@@ -214,6 +222,25 @@ class EventTableModel(QAbstractTableModel):
                     event.locked = value
                 elif isinstance(value, str):
                     event.locked = value.lower() in ['yes', 'true', '1']
+                else:
+                    return False
+            else:
+                return False
+            
+            event.update_modified()
+            self.dataChanged.emit(index, index)
+            return True
+        
+        elif col == self.COL_NEEDS_MANUAL:
+            # Handle both checkbox toggle and direct value setting
+            if role == Qt.CheckStateRole:
+                event.needs_manual = (value == Qt.Checked)
+            elif role == Qt.EditRole:
+                # Allow text input: "Yes"/"No" or boolean
+                if isinstance(value, bool):
+                    event.needs_manual = value
+                elif isinstance(value, str):
+                    event.needs_manual = value.lower() in ['yes', 'true', '1']
                 else:
                     return False
             else:
@@ -291,6 +318,17 @@ class EventTableModel(QAbstractTableModel):
         self.beginInsertRows(QModelIndex(), row, row)
         self.events.append(event)
         self.endInsertRows()
+    
+    def get_human_friendly_id(self, event: Event) -> str:
+        """Get human-friendly ID for an event based on its position in the sorted list.
+        
+        Args:
+            event: Event object
+            
+        Returns:
+            Human-friendly ID like 'E001', 'E002', etc.
+        """
+        return get_human_friendly_id(event, self.events)
 
 
 class EventFilterProxyModel(QSortFilterProxyModel):

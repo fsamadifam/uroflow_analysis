@@ -89,10 +89,9 @@ class EventFeatures:
     """Computed features for an event (for triage, not classification)."""
     duration_s: float              # Event duration in seconds
     delta_mass_g: float            # Net mass change (post - pre)
-    peak_slope_g_per_s: float      # Maximum positive slope
+    peak_slope_g_per_s: float      # Maximum positive slope (sharpness)
+    mean_slope_g_per_s: float      # Mean slope (overall behavior)
     oscillation_score: float       # Sign changes in slope (normalized)
-    plateau_stability: float       # Std dev in tail window
-    coverage_frac: float           # Fraction of valid samples within event window
     crosses_gap: bool              # True if event spans a data gap
     
     def __post_init__(self):
@@ -101,8 +100,8 @@ class EventFeatures:
         if self.crosses_gap:
             return
         # Check for NaN values when not crossing gap
-        for attr in ['duration_s', 'delta_mass_g', 'peak_slope_g_per_s', 
-                     'oscillation_score', 'plateau_stability', 'coverage_frac']:
+        for attr in ['duration_s', 'delta_mass_g', 'peak_slope_g_per_s', 'mean_slope_g_per_s',
+                     'oscillation_score']:
             val = getattr(self, attr)
             if not np.isfinite(val):
                 raise ValueError(f"Feature {attr} is not finite: {val}")
@@ -212,3 +211,35 @@ class Project:
     def sort_events_by_time(self):
         """Sort events by start time in place."""
         self.events.sort(key=lambda e: e.start_time_s)
+    
+    def get_human_friendly_id(self, event: Event) -> str:
+        """Get human-friendly ID for an event based on its position in the sorted list.
+        
+        Args:
+            event: Event object
+            
+        Returns:
+            Human-friendly ID like 'E001', 'E002', etc.
+        """
+        try:
+            event_number = self.events.index(event) + 1
+            return f"E{event_number:03d}"
+        except ValueError:
+            return "E???"
+
+
+def get_human_friendly_id(event: Event, sorted_events: list[Event]) -> str:
+    """Get human-friendly ID for an event based on its position in a sorted events list.
+    
+    Args:
+        event: Event object
+        sorted_events: List of events sorted by start time
+        
+    Returns:
+        Human-friendly ID like 'E001', 'E002', etc.
+    """
+    try:
+        event_number = sorted_events.index(event) + 1
+        return f"E{event_number:03d}"
+    except ValueError:
+        return "E???"
