@@ -2,8 +2,8 @@
 
 import numpy as np
 import pyqtgraph as pg
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel
-from PySide6.QtCore import Signal
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QScrollBar
+from PySide6.QtCore import Signal, Qt
 from PySide6.QtGui import QColor
 
 from uroflow.core.types import Event, Segment, Gap
@@ -175,7 +175,69 @@ class OverviewPlot(QWidget):
         # Enable box zoom: right-click drag to zoom to a box, middle-click to reset
         self.plot_widget.getViewBox().setMouseMode(pg.ViewBox.RectMode)
         
-        layout.addWidget(self.plot_widget)
+        # Main plot area with vertical scrollbar
+        plot_area_layout = QHBoxLayout()
+        plot_area_layout.setContentsMargins(0, 0, 0, 0)
+        plot_area_layout.setSpacing(2)
+        
+        plot_area_layout.addWidget(self.plot_widget, stretch=1)
+        
+        # Vertical scrollbar for Y-axis navigation (visible only when zoomed)
+        self.nav_scrollbar_v = QScrollBar(Qt.Vertical)
+        self.nav_scrollbar_v.setMinimum(0)
+        self.nav_scrollbar_v.setMaximum(10000)
+        self.nav_scrollbar_v.setValue(0)
+        self.nav_scrollbar_v.setPageStep(1000)
+        self.nav_scrollbar_v.setSingleStep(100)
+        self.nav_scrollbar_v.valueChanged.connect(self._on_scrollbar_v_changed)
+        self.nav_scrollbar_v.setToolTip("Drag to pan Y-axis (visible when zoomed)")
+        self.nav_scrollbar_v.hide()
+        
+        plot_area_layout.addWidget(self.nav_scrollbar_v)
+        
+        layout.addLayout(plot_area_layout)
+        
+        # Horizontal scrollbar for navigation (visible only when zoomed)
+        scrollbar_layout = QHBoxLayout()
+        scrollbar_layout.setContentsMargins(0, 0, 0, 0)
+        
+        self.nav_scrollbar = QScrollBar(Qt.Horizontal)
+        self.nav_scrollbar.setMinimum(0)
+        self.nav_scrollbar.setMaximum(10000)  # High resolution for smooth scrolling
+        self.nav_scrollbar.setValue(0)
+        self.nav_scrollbar.setPageStep(1000)  # 10% of range
+        self.nav_scrollbar.setSingleStep(100)  # 1% of range
+        self.nav_scrollbar.valueChanged.connect(self._on_scrollbar_changed)
+        self.nav_scrollbar.setToolTip("Drag to pan view (visible when zoomed in)")
+        self.nav_scrollbar.hide()  # Hidden until zoomed
+        
+        # Zoom info label
+        self.zoom_label = QLabel("")
+        self.zoom_label.setStyleSheet("color: #666; font-size: 10px;")
+        self.zoom_label.hide()
+        
+        # Reset zoom button
+        self.reset_zoom_btn = QPushButton("Reset Zoom")
+        self.reset_zoom_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #9E9E9E;
+                color: white;
+                padding: 2px 8px;
+                border-radius: 2px;
+                font-size: 10px;
+            }
+            QPushButton:hover {
+                background-color: #757575;
+            }
+        """)
+        self.reset_zoom_btn.clicked.connect(self._on_reset_zoom)
+        self.reset_zoom_btn.hide()
+        
+        scrollbar_layout.addWidget(self.nav_scrollbar, stretch=1)
+        scrollbar_layout.addWidget(self.zoom_label)
+        scrollbar_layout.addWidget(self.reset_zoom_btn)
+        
+        layout.addLayout(scrollbar_layout)
         
         # Plot items
         self.data_curve = self.plot_widget.plot(pen=pg.mkPen('k', width=1))
@@ -189,12 +251,23 @@ class OverviewPlot(QWidget):
         # Selection indicator (arrow pointing to selected event)
         self.selection_arrow = None
         
+        # Track data range for scrollbars
+        self._data_start = 0.0
+        self._data_end = 1.0
+        self._data_y_min = 0.0
+        self._data_y_max = 1.0
+        self._updating_scrollbar = False  # Flag to prevent signal loops
+        
         # Enable mouse interaction
         self.plot_widget.scene().sigMouseClicked.connect(self._on_mouse_click)
         
         # Enable drag for manual event creation (Ctrl+Click+Drag)
         self.plot_widget.setMouseEnabled(x=True, y=False)
         self.plot_widget.scene().sigMouseMoved.connect(self._on_mouse_move)
+        
+        # Connect range changes to update scrollbars
+        self.plot_widget.sigXRangeChanged.connect(self._on_x_range_changed)
+        self.plot_widget.sigYRangeChanged.connect(self._on_y_range_changed)
     
     def set_data(self, timestamp: np.ndarray, mass: np.ndarray,
                  segments: list, gaps: list, events: list):
@@ -212,6 +285,18 @@ class OverviewPlot(QWidget):
         self.segments = segments
         self.gaps = gaps
         self.events = events
+        
+        # Track data range for scrollbars
+        if timestamp is not None and len(timestamp) > 0:
+            self._data_start = timestamp[0]
+            self._data_end = timestamp[-1]
+        if mass is not None and len(mass) > 0:
+            self._data_y_min = float(np.nanmin(mass))
+            self._data_y_max = float(np.nanmax(mass))
+            # Add small padding to Y range
+            y_padding = (self._data_y_max - self._data_y_min) * 0.02
+            self._data_y_min -= y_padding
+            self._data_y_max += y_padding
         
         self._redraw()
     
@@ -516,11 +601,12 @@ class OverviewPlot(QWidget):
         """Cancel event creation."""
         self.create_mode_btn.setChecked(False)
     
-    def highlight_event(self, event_id: str):
+    def highlight_event(self, event_id: str, center_view: bool = False):
         """Highlight a specific event with arrow and distinct styling.
         
         Args:
             event_id: Event ID to highlight
+            center_view: If True, center the x-range on the selected event
         """
         try:
             # Remove old arrow if exists
@@ -586,8 +672,364 @@ class OverviewPlot(QWidget):
                 self.plot_widget.addItem(arrow)
                 self.selection_arrow = arrow
                 
+                # Center view on selected event if requested
+                if center_view:
+                    self.center_on_event(selected_event)
+                
         except Exception as e:
             print(f"ERROR in highlight_event: {e}")
+    
+    def center_on_event(self, event, padding_factor: float = 3.0):
+        """Center both X and Y range on a specific event.
+        
+        Args:
+            event: Event object to center on
+            padding_factor: Multiplier for event duration to set window width
+        """
+        if event is None or self.timestamp is None or self.mass is None:
+            return
+        
+        try:
+            # === X-axis centering ===
+            event_duration = event.end_time_s - event.start_time_s
+            center_time = (event.start_time_s + event.end_time_s) / 2
+            
+            # Window width is event duration * padding_factor (min 30s for short events)
+            window_width = max(event_duration * padding_factor, 30.0)
+            half_width = window_width / 2
+            
+            # Calculate new X range, clamped to data bounds
+            new_x_start = max(center_time - half_width, self._data_start)
+            new_x_end = min(center_time + half_width, self._data_end)
+            
+            # === Y-axis centering ===
+            # Get mass values within the event time window
+            start_idx = max(0, event.start_idx)
+            end_idx = min(len(self.mass), event.end_idx)
+            
+            if start_idx < end_idx:
+                event_mass = self.mass[start_idx:end_idx]
+                event_y_min = float(np.nanmin(event_mass))
+                event_y_max = float(np.nanmax(event_mass))
+                
+                # Add padding around the event's Y range (50% on each side)
+                y_range = event_y_max - event_y_min
+                y_padding = max(y_range * 0.5, 0.5)  # At least 0.5g padding
+                
+                new_y_min = max(event_y_min - y_padding, self._data_y_min)
+                new_y_max = min(event_y_max + y_padding, self._data_y_max)
+            else:
+                # Fallback to full Y range
+                new_y_min = self._data_y_min
+                new_y_max = self._data_y_max
+            
+            # Set both ranges
+            self.plot_widget.setXRange(new_x_start, new_x_end, padding=0)
+            self.plot_widget.setYRange(new_y_min, new_y_max, padding=0)
+            
+        except Exception as e:
+            print(f"ERROR in center_on_event: {e}")
+    
+    def _on_x_range_changed(self, view_box, x_range):
+        """Handle x-range change - update scrollbar visibility and position.
+        
+        Args:
+            view_box: The ViewBox that changed
+            x_range: New (min, max) x range
+        """
+        if self._updating_scrollbar or self.timestamp is None:
+            return
+        
+        try:
+            view_start, view_end = x_range
+            data_range = self._data_end - self._data_start
+            view_width = view_end - view_start
+            
+            if data_range <= 0:
+                return
+            
+            # Calculate zoom level (1.0 = full view, higher = zoomed in)
+            zoom_level = data_range / view_width if view_width > 0 else 1.0
+            
+            # Check if Y is also zoomed
+            y_range = self.plot_widget.viewRange()[1]
+            y_view_height = y_range[1] - y_range[0]
+            y_data_range = self._data_y_max - self._data_y_min
+            y_zoom = y_data_range / y_view_height if y_view_height > 0 else 1.0
+            
+            # Show each scrollbar only when its axis is zoomed (so it's functional)
+            # Show zoom controls when either axis is zoomed
+            is_x_zoomed = zoom_level > 1.1
+            is_y_zoomed = y_zoom > 1.1
+            is_any_zoomed = is_x_zoomed or is_y_zoomed
+            
+            self.nav_scrollbar.setVisible(is_x_zoomed)
+            self.nav_scrollbar_v.setVisible(is_y_zoomed)
+            self.zoom_label.setVisible(is_any_zoomed)
+            self.reset_zoom_btn.setVisible(is_any_zoomed)
+            
+            if is_any_zoomed:
+                # Update zoom label showing both axes if zoomed
+                if is_x_zoomed and is_y_zoomed:
+                    self.zoom_label.setText(f"Zoom: X {zoom_level:.1f}x, Y {y_zoom:.1f}x")
+                elif is_x_zoomed:
+                    self.zoom_label.setText(f"Zoom: X {zoom_level:.1f}x")
+                else:
+                    self.zoom_label.setText(f"Zoom: Y {y_zoom:.1f}x")
+                
+                self._updating_scrollbar = True
+                
+                # Update horizontal scrollbar position and page size
+                page_fraction = view_width / data_range
+                page_step = int(10000 * page_fraction)
+                self.nav_scrollbar.setPageStep(max(page_step, 100))
+                
+                # Single step = 2% of visible window for extra-fine X scrolling
+                single_step = int(page_step * 0.02)
+                self.nav_scrollbar.setSingleStep(max(single_step, 10))
+                
+                scrollable_range = data_range - view_width
+                if scrollable_range > 0:
+                    position_fraction = (view_start - self._data_start) / scrollable_range
+                    scrollbar_value = int(position_fraction * (10000 - page_step))
+                    self.nav_scrollbar.setValue(max(0, min(scrollbar_value, 10000 - page_step)))
+                
+                # Also update vertical scrollbar position (needed when showing due to X zoom)
+                if y_data_range > 0:
+                    y_page_fraction = y_view_height / y_data_range
+                    y_page_step = int(10000 * y_page_fraction)
+                    self.nav_scrollbar_v.setPageStep(max(y_page_step, 100))
+                    
+                    # Single step = 5% of visible window for fine scrolling
+                    y_single_step = int(y_page_step * 0.05)
+                    self.nav_scrollbar_v.setSingleStep(max(y_single_step, 20))
+                    
+                    y_scrollable_range = y_data_range - y_view_height
+                    if y_scrollable_range > 0:
+                        # Inverted: high scrollbar value = low Y view
+                        y_position_fraction = (self._data_y_max - y_range[1]) / y_scrollable_range
+                        y_scrollbar_value = int(y_position_fraction * (10000 - y_page_step))
+                        self.nav_scrollbar_v.setValue(max(0, min(y_scrollbar_value, 10000 - y_page_step)))
+                    else:
+                        # Y not scrollable (full range visible), set to 0
+                        self.nav_scrollbar_v.setValue(0)
+                
+                self._updating_scrollbar = False
+                
+        except Exception as e:
+            self._updating_scrollbar = False
+            print(f"ERROR in _on_x_range_changed: {e}")
+    
+    def _on_scrollbar_changed(self, value: int):
+        """Handle scrollbar value change - pan the plot.
+        
+        Args:
+            value: New scrollbar value (0-10000)
+        """
+        if self._updating_scrollbar or self.timestamp is None:
+            return
+        
+        try:
+            self._updating_scrollbar = True
+            
+            # Get current view width
+            view_range = self.plot_widget.viewRange()
+            view_width = view_range[0][1] - view_range[0][0]
+            
+            data_range = self._data_end - self._data_start
+            scrollable_range = data_range - view_width
+            
+            if scrollable_range <= 0:
+                self._updating_scrollbar = False
+                return
+            
+            # Calculate page step for correct position mapping
+            page_fraction = view_width / data_range
+            page_step = int(10000 * page_fraction)
+            
+            # Map scrollbar value to view position
+            max_scrollbar = 10000 - page_step
+            if max_scrollbar > 0:
+                position_fraction = value / max_scrollbar
+            else:
+                position_fraction = 0
+            
+            new_start = self._data_start + (position_fraction * scrollable_range)
+            new_end = new_start + view_width
+            
+            # Clamp to data bounds
+            if new_end > self._data_end:
+                new_end = self._data_end
+                new_start = new_end - view_width
+            if new_start < self._data_start:
+                new_start = self._data_start
+                new_end = new_start + view_width
+            
+            # Update plot range
+            self.plot_widget.setXRange(new_start, new_end, padding=0)
+            
+            self._updating_scrollbar = False
+            
+        except Exception as e:
+            self._updating_scrollbar = False
+            print(f"ERROR in _on_scrollbar_changed: {e}")
+    
+    def _on_reset_zoom(self):
+        """Reset to full data view."""
+        if self.timestamp is None:
+            return
+        
+        try:
+            self.plot_widget.autoRange()
+        except Exception as e:
+            print(f"ERROR in _on_reset_zoom: {e}")
+    
+    def _on_y_range_changed(self, view_box, y_range):
+        """Handle y-range change - update vertical scrollbar visibility and position.
+        
+        Args:
+            view_box: The ViewBox that changed
+            y_range: New (min, max) y range
+        """
+        if self._updating_scrollbar or self.mass is None:
+            return
+        
+        try:
+            view_min, view_max = y_range
+            data_range = self._data_y_max - self._data_y_min
+            view_height = view_max - view_min
+            
+            if data_range <= 0:
+                return
+            
+            # Calculate Y zoom level
+            y_zoom_level = data_range / view_height if view_height > 0 else 1.0
+            
+            # Check if X is also zoomed
+            x_range = self.plot_widget.viewRange()[0]
+            x_view_width = x_range[1] - x_range[0]
+            x_data_range = self._data_end - self._data_start
+            x_zoom = x_data_range / x_view_width if x_view_width > 0 else 1.0
+            
+            # Show each scrollbar only when its axis is zoomed (so it's functional)
+            # Show zoom controls when either axis is zoomed
+            is_y_zoomed = y_zoom_level > 1.1
+            is_x_zoomed = x_zoom > 1.1
+            is_any_zoomed = is_x_zoomed or is_y_zoomed
+            
+            self.nav_scrollbar.setVisible(is_x_zoomed)
+            self.nav_scrollbar_v.setVisible(is_y_zoomed)
+            self.zoom_label.setVisible(is_any_zoomed)
+            self.reset_zoom_btn.setVisible(is_any_zoomed)
+            
+            if is_any_zoomed:
+                self._updating_scrollbar = True
+                
+                # Update vertical scrollbar position and page size
+                page_fraction = view_height / data_range
+                page_step = int(10000 * page_fraction)
+                self.nav_scrollbar_v.setPageStep(max(page_step, 100))
+                
+                # Single step = 5% of visible window for fine scrolling
+                single_step = int(page_step * 0.05)
+                self.nav_scrollbar_v.setSingleStep(max(single_step, 20))
+                
+                # Position (inverted - top of scrollbar = high Y values)
+                scrollable_range = data_range - view_height
+                if scrollable_range > 0:
+                    position_fraction = (self._data_y_max - view_max) / scrollable_range
+                    scrollbar_value = int(position_fraction * (10000 - page_step))
+                    self.nav_scrollbar_v.setValue(max(0, min(scrollbar_value, 10000 - page_step)))
+                else:
+                    self.nav_scrollbar_v.setValue(0)
+                
+                # Also update horizontal scrollbar position (needed when showing due to Y zoom)
+                if x_data_range > 0:
+                    x_page_fraction = x_view_width / x_data_range
+                    x_page_step = int(10000 * x_page_fraction)
+                    self.nav_scrollbar.setPageStep(max(x_page_step, 100))
+                    
+                    # Single step = 2% of visible window for extra-fine X scrolling
+                    x_single_step = int(x_page_step * 0.02)
+                    self.nav_scrollbar.setSingleStep(max(x_single_step, 10))
+                    
+                    x_scrollable_range = x_data_range - x_view_width
+                    if x_scrollable_range > 0:
+                        x_position_fraction = (x_range[0] - self._data_start) / x_scrollable_range
+                        x_scrollbar_value = int(x_position_fraction * (10000 - x_page_step))
+                        self.nav_scrollbar.setValue(max(0, min(x_scrollbar_value, 10000 - x_page_step)))
+                    else:
+                        self.nav_scrollbar.setValue(0)
+                
+                self._updating_scrollbar = False
+            
+            # Update zoom label if any zoom is active
+            if is_any_zoomed:
+                if is_x_zoomed and is_y_zoomed:
+                    self.zoom_label.setText(f"Zoom: X {x_zoom:.1f}x, Y {y_zoom_level:.1f}x")
+                elif is_x_zoomed:
+                    self.zoom_label.setText(f"Zoom: X {x_zoom:.1f}x")
+                else:
+                    self.zoom_label.setText(f"Zoom: Y {y_zoom_level:.1f}x")
+                
+        except Exception as e:
+            self._updating_scrollbar = False
+            print(f"ERROR in _on_y_range_changed: {e}")
+    
+    def _on_scrollbar_v_changed(self, value: int):
+        """Handle vertical scrollbar value change - pan the Y-axis.
+        
+        Args:
+            value: New scrollbar value (0-10000)
+        """
+        if self._updating_scrollbar or self.mass is None:
+            return
+        
+        try:
+            self._updating_scrollbar = True
+            
+            # Get current view height
+            view_range = self.plot_widget.viewRange()
+            view_height = view_range[1][1] - view_range[1][0]
+            
+            data_range = self._data_y_max - self._data_y_min
+            scrollable_range = data_range - view_height
+            
+            if scrollable_range <= 0:
+                self._updating_scrollbar = False
+                return
+            
+            # Calculate page step for correct position mapping
+            page_fraction = view_height / data_range
+            page_step = int(10000 * page_fraction)
+            
+            # Map scrollbar value to view position (inverted)
+            max_scrollbar = 10000 - page_step
+            if max_scrollbar > 0:
+                position_fraction = value / max_scrollbar
+            else:
+                position_fraction = 0
+            
+            # Inverted: high scrollbar value = low Y view
+            new_max = self._data_y_max - (position_fraction * scrollable_range)
+            new_min = new_max - view_height
+            
+            # Clamp to data bounds
+            if new_min < self._data_y_min:
+                new_min = self._data_y_min
+                new_max = new_min + view_height
+            if new_max > self._data_y_max:
+                new_max = self._data_y_max
+                new_min = new_max - view_height
+            
+            # Update plot range
+            self.plot_widget.setYRange(new_min, new_max, padding=0)
+            
+            self._updating_scrollbar = False
+            
+        except Exception as e:
+            self._updating_scrollbar = False
+            print(f"ERROR in _on_scrollbar_v_changed: {e}")
     
     def update_event_bounds(self, event_id: str, start_time: float, end_time: float):
         """Update the bounds of a single event without full redraw.

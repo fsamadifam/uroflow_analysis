@@ -132,6 +132,7 @@ class MainWindow(QMainWindow):
         # Event table tab
         self.event_widget = EventWidget()
         self.event_widget.event_selected.connect(self._on_event_selected)
+        self.event_widget.event_double_clicked.connect(self._on_event_double_clicked)
         self.event_widget.next_event_requested.connect(self._on_next_event)
         self.event_widget.prev_event_requested.connect(self._on_prev_event)
         right_panel.addTab(self.event_widget, "Events")
@@ -889,6 +890,23 @@ class MainWindow(QMainWindow):
             # Always reset flag
             self._selecting_event = False
             # Don't process events here - let Qt handle it naturally
+    
+    def _on_event_double_clicked(self, event_id: str):
+        """Handle double-click on event in table - select and center view.
+        
+        Args:
+            event_id: Event ID that was double-clicked
+        """
+        if not self.project:
+            return
+        
+        # Select the event (same as single click)
+        self._on_event_selected(event_id)
+        
+        # Center the overview plot on this event
+        event = self.project.get_event_by_id(event_id)
+        if event:
+            self.overview_plot.highlight_event(event_id, center_view=True)
     
     def _on_next_event(self):
         """Navigate to next event."""

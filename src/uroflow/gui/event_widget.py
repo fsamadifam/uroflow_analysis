@@ -19,6 +19,7 @@ class EventWidget(QWidget):
     """Widget for event table with filtering and navigation."""
     
     event_selected = Signal(str)  # event_id
+    event_double_clicked = Signal(str)  # event_id - for centering view
     next_event_requested = Signal()
     prev_event_requested = Signal()
     
@@ -92,6 +93,9 @@ class EventWidget(QWidget):
         
         # Connect single click - will open editor on label column
         self.table_view.clicked.connect(self._on_cell_clicked)
+        
+        # Connect double click - centers plot view on event
+        self.table_view.doubleClicked.connect(self._on_cell_double_clicked)
         
         layout.addWidget(self.table_view)
         
@@ -263,6 +267,31 @@ class EventWidget(QWidget):
                 
         except Exception as e:
             print(f"ERROR in _on_cell_clicked: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def _on_cell_double_clicked(self, index):
+        """Handle double click on cell - select event and center plot view."""
+        try:
+            if not index.isValid():
+                return
+            
+            # Map to source model
+            source_index = self.proxy_model.mapToSource(index)
+            if not source_index.isValid():
+                return
+            
+            event = self.table_model.get_event_at_row(source_index.row())
+            if event:
+                print(f"Table row double-clicked: {event.event_id[:8]} - centering view")
+                self.event_double_clicked.emit(event.event_id)
+            
+            # Don't open editor on double-click (except for label column, handled above)
+            # The doubleClicked signal is processed after clicked, so label editing
+            # will be handled by the edit trigger we set up
+                
+        except Exception as e:
+            print(f"ERROR in _on_cell_double_clicked: {e}")
             import traceback
             traceback.print_exc()
     
