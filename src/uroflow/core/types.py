@@ -225,6 +225,9 @@ class Project:
     # Video folder path (optional)
     video_folder_path: Optional[str] = None
     
+    # Spatial calibration (stored in project for portability)
+    spatial_calibration: Optional[dict] = None
+    
     # Metadata
     created_at: str = field(default_factory=lambda: datetime.now().isoformat())
     last_modified: str = field(default_factory=lambda: datetime.now().isoformat())

@@ -838,13 +838,100 @@ class MainWindow(QMainWindow):
         dialog.exec()
     
     def _on_calibration_saved(self, cal_data):
-        """Handle calibration saved from dialog."""
-        self.status_label.setText("Spatial calibration saved")
+        """Handle calibration saved from dialog.
+        
+        Args:
+            cal_data: CalibrationData object from the dialog
+        """
+        if self.project:
+            self.project.spatial_calibration = cal_data.to_dict()
+            self.project.update_modified()
+            
+            # Check if any events have spatial coordinates that need recalculation
+            events_with_coords = [
+                e for e in self.project.events if e.spatial_coords is not None
+            ]
+            
+            if events_with_coords:
+                # Ask user if they want to recalculate
+                reply = QMessageBox.question(
+                    self, "Recalculate Event Locations",
+                    f"{len(events_with_coords)} event(s) have spatial locations.\n\n"
+                    "Do you want to recalculate their real-world coordinates\n"
+                    "using the new calibration?",
+                    QMessageBox.Yes | QMessageBox.No,
+                    QMessageBox.Yes
+                )
+                
+                if reply == QMessageBox.Yes:
+                    n_updated = self._recalculate_event_spatial_coords(cal_data)
+                    self.status_label.setText(
+                        f"Calibration saved, {n_updated} event location(s) recalculated"
+                    )
+                else:
+                    self.status_label.setText("Spatial calibration saved to project")
+            else:
+                self.status_label.setText("Spatial calibration saved to project")
+        else:
+            self.status_label.setText("Spatial calibration saved")
+    
+    def _recalculate_event_spatial_coords(self, cal_data):
+        """Recalculate real-world coordinates for all events using new calibration.
+        
+        Args:
+            cal_data: CalibrationData object with new calibration
+            
+        Returns:
+            Number of events updated
+        """
+        from uroflow.spatial.transform import transform_point
+        
+        n_updated = 0
+        for event in self.project.events:
+            if event.spatial_coords is not None:
+                # Get saved image coordinates
+                img_x = event.spatial_coords.image_x
+                img_y = event.spatial_coords.image_y
+                
+                # Transform using new calibration
+                result = transform_point(img_x, img_y, cal_data)
+                if result is not None:
+                    real_x, real_y = result
+                    event.spatial_coords.real_x_cm = real_x
+                    event.spatial_coords.real_y_cm = real_y
+                    event.update_modified()
+                    n_updated += 1
+        
+        if n_updated > 0:
+            self.project.update_modified()
+        
+        return n_updated
+    
+    def _load_calibration_from_project(self):
+        """Load calibration from project, with fallback to session_config.
+        
+        Returns:
+            CalibrationData object or None if no calibration found
+        """
+        from uroflow.spatial.calibration import CalibrationData, load_calibration
+        
+        if not self.project:
+            return None
+        
+        # Try loading from project first (preferred)
+        if self.project.spatial_calibration:
+            try:
+                return CalibrationData.from_dict(self.project.spatial_calibration)
+            except (KeyError, TypeError, ValueError):
+                pass
+        
+        # Fallback to session_config for backward compatibility
+        config_path = self.project.session_config_path or ""
+        return load_calibration(config_path) if config_path else None
     
     def _open_annotation_dialog(self):
         """Open event location annotation dialog for the selected event."""
         from uroflow.spatial.gui.annotation_dialog import EventAnnotationDialog
-        from uroflow.spatial.calibration import load_calibration
         from uroflow.core.types import SpatialCoordinates
         from uroflow.core.video import find_matching_videos, get_video_files
         
@@ -862,9 +949,8 @@ class MainWindow(QMainWindow):
         if event is None:
             return
         
-        # Load calibration
-        config_path = self.project.session_config_path or ""
-        calibration = load_calibration(config_path) if config_path else None
+        # Load calibration from project
+        calibration = self._load_calibration_from_project()
         
         if calibration is None or not calibration.is_valid():
             QMessageBox.warning(
@@ -935,14 +1021,12 @@ class MainWindow(QMainWindow):
     def _open_spatial_analysis(self):
         """Open spatial analysis panel/dialog."""
         from uroflow.spatial.gui.spatial_overlay import SpatialAnalysisDialog
-        from uroflow.spatial.calibration import load_calibration
         
         if not self.project:
             QMessageBox.warning(self, "No Project", "Please load a project first.")
             return
         
-        config_path = self.project.session_config_path or ""
-        calibration = load_calibration(config_path) if config_path else None
+        calibration = self._load_calibration_from_project()
         
         events_with_coords = [
             e for e in self.project.events if e.spatial_coords is not None
