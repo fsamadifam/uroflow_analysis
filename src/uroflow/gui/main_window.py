@@ -768,9 +768,15 @@ class MainWindow(QMainWindow):
         """Show save project as dialog."""
         if not self.project:
             return
-        
+
+        csv_p = Path(self.project.input_csv_path)
+        if csv_p.name and csv_p.stem:
+            default_path = str(csv_p.parent / f"{csv_p.stem}_project.json")
+        else:
+            default_path = "project.json"
+
         project_path, _ = QFileDialog.getSaveFileName(
-            self, "Save Project As", "project.json", "Project Files (*.json)"
+            self, "Save Project As", default_path, "Project Files (*.json)"
         )
         
         if project_path:
