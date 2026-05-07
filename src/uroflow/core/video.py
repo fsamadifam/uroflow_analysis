@@ -100,12 +100,9 @@ def parse_event_wall_clock(
         # Combine with date
         event_datetime = datetime.combine(start_date, event_time)
         
-        # Handle midnight rollover: if event time is significantly before
-        # session start time (more than 6 hours), it's the next day
-        start_datetime = datetime.combine(start_date, start_time)
-        
-        if event_datetime < start_datetime - timedelta(hours=6):
-            # Event is on the next day
+        # Handle midnight rollover: if event time is earlier than session start,
+        # the event occurred after midnight on the next day
+        if event_time < start_time:
             event_datetime += timedelta(days=1)
         
         return event_datetime
