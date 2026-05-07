@@ -222,6 +222,23 @@ class MainWindow(QMainWindow):
         # View menu
         view_menu = menubar.addMenu("&View")
         
+        # Spatial menu
+        spatial_menu = menubar.addMenu("&Spatial")
+        
+        calibrate_action = QAction("&Calibrate Camera...", self)
+        calibrate_action.triggered.connect(self._open_calibration_dialog)
+        spatial_menu.addAction(calibrate_action)
+        
+        annotate_action = QAction("&Mark Event Location...", self)
+        annotate_action.triggered.connect(self._open_annotation_dialog)
+        spatial_menu.addAction(annotate_action)
+        
+        spatial_menu.addSeparator()
+        
+        spatial_analysis_action = QAction("Spatial &Analysis...", self)
+        spatial_analysis_action.triggered.connect(self._open_spatial_analysis)
+        spatial_menu.addAction(spatial_analysis_action)
+        
         # Help menu
         help_menu = menubar.addMenu("&Help")
         
@@ -798,6 +815,153 @@ class MainWindow(QMainWindow):
             "manual labeling, and event management.\n\n"
             "© 2026 Uroflow Project"
         )
+    
+    # --- Spatial calibration and annotation ---
+    
+    def _open_calibration_dialog(self):
+        """Open spatial calibration dialog."""
+        from uroflow.spatial.gui.calibration_dialog import CalibrationDialog
+        
+        video_folder = ""
+        config_path = ""
+        
+        if self.project:
+            video_folder = self.project.video_folder_path or ""
+            config_path = self.project.session_config_path or ""
+        
+        dialog = CalibrationDialog(
+            video_folder=video_folder,
+            config_path=config_path,
+            parent=self,
+        )
+        dialog.calibration_saved.connect(self._on_calibration_saved)
+        dialog.exec()
+    
+    def _on_calibration_saved(self, cal_data):
+        """Handle calibration saved from dialog."""
+        self.status_label.setText("Spatial calibration saved")
+    
+    def _open_annotation_dialog(self):
+        """Open event location annotation dialog for the selected event."""
+        from uroflow.spatial.gui.annotation_dialog import EventAnnotationDialog
+        from uroflow.spatial.calibration import load_calibration
+        from uroflow.core.types import SpatialCoordinates
+        from uroflow.core.video import find_matching_videos, get_video_files
+        
+        if not self.project:
+            QMessageBox.warning(self, "No Project", "Please load a project first.")
+            return
+        
+        # Get selected event
+        event_id = self.current_event_id
+        if not event_id:
+            QMessageBox.information(self, "No Selection", "Please select an event first.")
+            return
+        
+        event = self.project.get_event_by_id(event_id)
+        if event is None:
+            return
+        
+        # Load calibration
+        config_path = self.project.session_config_path or ""
+        calibration = load_calibration(config_path) if config_path else None
+        
+        if calibration is None or not calibration.is_valid():
+            QMessageBox.warning(
+                self, "No Calibration",
+                "No spatial calibration found.\n\n"
+                "Please calibrate the camera first via Spatial -> Calibrate Camera."
+            )
+            return
+        
+        # Find matching video
+        video_folder = self.project.video_folder_path
+        if not video_folder:
+            QMessageBox.warning(
+                self, "No Video Folder",
+                "No video folder configured.\nPlease set it via File -> Set Video Folder."
+            )
+            return
+        
+        video_files = get_video_files(video_folder)
+        if not video_files or not event.wall_clock_time:
+            QMessageBox.information(
+                self, "No Video",
+                "Cannot find matching video for this event."
+            )
+            return
+        
+        session_config = self.project.session_config_snapshot or {}
+        matches = find_matching_videos(
+            event, video_files,
+            session_config.get('start_date', ''),
+            session_config.get('start_time', ''),
+            max_delay_after_event_s=60.0,
+        )
+        
+        if not matches:
+            QMessageBox.information(
+                self, "No Video",
+                f"No video found near event time: {event.wall_clock_time}"
+            )
+            return
+        
+        video_path = str(matches[0][0])
+        
+        dialog = EventAnnotationDialog(
+            video_path=video_path,
+            calibration=calibration,
+            event_label=event.label_user,
+            parent=self,
+        )
+        
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            result = dialog.get_result()
+            if result is not None:
+                img_x, img_y, real_x, real_y = result
+                event.spatial_coords = SpatialCoordinates(
+                    image_x=img_x,
+                    image_y=img_y,
+                    real_x_cm=real_x,
+                    real_y_cm=real_y,
+                )
+                event.update_modified()
+                self.project.update_modified()
+                self.status_label.setText(
+                    f"Location marked for event {event_id[:8]}: "
+                    f"({real_x:.1f}, {real_y:.1f}) cm"
+                )
+    
+    def _open_spatial_analysis(self):
+        """Open spatial analysis panel/dialog."""
+        from uroflow.spatial.gui.spatial_overlay import SpatialAnalysisDialog
+        from uroflow.spatial.calibration import load_calibration
+        
+        if not self.project:
+            QMessageBox.warning(self, "No Project", "Please load a project first.")
+            return
+        
+        config_path = self.project.session_config_path or ""
+        calibration = load_calibration(config_path) if config_path else None
+        
+        events_with_coords = [
+            e for e in self.project.events if e.spatial_coords is not None
+        ]
+        
+        if not events_with_coords:
+            QMessageBox.information(
+                self, "No Spatial Data",
+                "No events have spatial coordinates yet.\n\n"
+                "Use Spatial -> Mark Event Location to annotate events."
+            )
+            return
+        
+        dialog = SpatialAnalysisDialog(
+            events=events_with_coords,
+            calibration=calibration,
+            parent=self,
+        )
+        dialog.exec()
     
     def _on_event_selected(self, event_id: str):
         """Handle event selection from table or plot.

@@ -8,7 +8,7 @@ from datetime import datetime
 from dataclasses import asdict
 import numpy as np
 
-from uroflow.core.types import Project, Event, DetectionParams, EventFeatures
+from uroflow.core.types import Project, Event, DetectionParams, EventFeatures, SpatialCoordinates
 
 
 class NumpyEncoder(json.JSONEncoder):
@@ -169,6 +169,7 @@ def _event_to_dict(event: Event) -> dict:
         'features': asdict(event.features) if event.features else None,
         'needs_manual': event.needs_manual,
         'wall_clock_time': event.wall_clock_time,
+        'spatial_coords': event.spatial_coords.to_dict() if event.spatial_coords else None,
         'created_at': event.created_at,
         'modified_at': event.modified_at,
     }
@@ -190,6 +191,12 @@ def _dict_to_event(event_dict: dict) -> Event:
     if event_dict['features'] is not None:
         features = EventFeatures(**event_dict['features'])
     
+    # Parse spatial_coords if present
+    spatial_coords = None
+    sc_dict = event_dict.get('spatial_coords')
+    if sc_dict is not None:
+        spatial_coords = SpatialCoordinates.from_dict(sc_dict)
+
     event = Event(
         event_id=event_dict['event_id'],
         start_idx=event_dict['start_idx'],
@@ -203,6 +210,7 @@ def _dict_to_event(event_dict: dict) -> Event:
         features=features,
         needs_manual=event_dict['needs_manual'],
         wall_clock_time=event_dict.get('wall_clock_time', ''),
+        spatial_coords=spatial_coords,
         created_at=event_dict['created_at'],
         modified_at=event_dict['modified_at'],
     )
@@ -230,7 +238,8 @@ def export_events_csv(events: list[Event], output_path: str):
             'start_time_s', 'end_time_s', 'duration_s',
             'source', 'locked', 'label_user', 'notes',
             'delta_mass_g', 'peak_slope_g_per_s', 'mean_slope_g_per_s', 'oscillation_score',
-            'crosses_gap', 'needs_manual'
+            'crosses_gap', 'needs_manual',
+            'image_x', 'image_y', 'real_x_cm', 'real_y_cm', 'radius_cm', 'theta_deg',
         ])
         
         # Data rows
@@ -261,6 +270,19 @@ def export_events_csv(events: list[Event], output_path: str):
                 row.extend(['', '', '', '', ''])
             
             row.append(event.needs_manual)
+            
+            # Add spatial coordinates
+            if event.spatial_coords:
+                row.extend([
+                    event.spatial_coords.image_x,
+                    event.spatial_coords.image_y,
+                    event.spatial_coords.real_x_cm,
+                    event.spatial_coords.real_y_cm,
+                    event.spatial_coords.radius_cm,
+                    event.spatial_coords.theta_deg,
+                ])
+            else:
+                row.extend(['', '', '', '', '', ''])
             
             writer.writerow(row)
 

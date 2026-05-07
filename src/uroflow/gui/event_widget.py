@@ -53,6 +53,10 @@ class EventWidget(QWidget):
         self.needs_manual_checkbox.stateChanged.connect(self._on_filter_changed)
         filter_layout.addWidget(self.needs_manual_checkbox)
         
+        self.needs_location_checkbox = QCheckBox("Needs location")
+        self.needs_location_checkbox.stateChanged.connect(self._on_filter_changed)
+        filter_layout.addWidget(self.needs_location_checkbox)
+        
         filter_layout.addWidget(QLabel("Label:"))
         self.label_combo = QComboBox()
         self.label_combo.addItems(["All", "Urine", "Feces", "Bad", "Unlabeled"])
@@ -300,6 +304,7 @@ class EventWidget(QWidget):
         """Handle filter control changes."""
         self.proxy_model.set_filter_unlabeled(self.unlabeled_checkbox.isChecked())
         self.proxy_model.set_filter_needs_manual(self.needs_manual_checkbox.isChecked())
+        self.proxy_model.set_filter_needs_location(self.needs_location_checkbox.isChecked())
         
         # Label filter
         label_text = self.label_combo.currentText().lower()

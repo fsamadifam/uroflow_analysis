@@ -17,13 +17,14 @@ class EventTableModel(QAbstractTableModel):
     COL_DURATION = 3
     COL_DELTA_MASS = 4
     COL_LABEL = 5
-    COL_SOURCE = 6
-    COL_LOCKED = 7
-    COL_NEEDS_MANUAL = 8
+    COL_LOCATION = 6
+    COL_SOURCE = 7
+    COL_LOCKED = 8
+    COL_NEEDS_MANUAL = 9
     
     HEADERS = [
         "ID", "Start (s)", "Wall Clock Time", "Duration (s)", "Δ Mass (g)",
-        "Label", "Source", "Locked", "Needs Manual"
+        "Label", "Location", "Source", "Locked", "Needs Manual"
     ]
     
     def __init__(self, parent=None):
@@ -137,6 +138,11 @@ class EventTableModel(QAbstractTableModel):
         
         elif col == self.COL_LABEL:
             return event.label_user if event.label_user else "(unlabeled)"
+        
+        elif col == self.COL_LOCATION:
+            if event.spatial_coords:
+                return f"({event.spatial_coords.real_x_cm:.1f}, {event.spatial_coords.real_y_cm:.1f})"
+            return "-"
         
         elif col == self.COL_SOURCE:
             return event.source
@@ -339,6 +345,7 @@ class EventFilterProxyModel(QSortFilterProxyModel):
         
         self.filter_unlabeled = False
         self.filter_needs_manual = False
+        self.filter_needs_location = False
         self.filter_label = None  # None or "urine"/"feces"/"bad"
         
         self.setSortRole(Qt.DisplayRole)
@@ -360,6 +367,15 @@ class EventFilterProxyModel(QSortFilterProxyModel):
             enabled: True to show only needs_manual
         """
         self.filter_needs_manual = enabled
+        self.invalidateFilter()
+    
+    def set_filter_needs_location(self, enabled: bool):
+        """Filter to show only events without spatial coordinates.
+        
+        Args:
+            enabled: True to show only events missing location annotation
+        """
+        self.filter_needs_location = enabled
         self.invalidateFilter()
     
     def set_filter_label(self, label: Optional[str]):
@@ -395,6 +411,9 @@ class EventFilterProxyModel(QSortFilterProxyModel):
             return False
         
         if self.filter_needs_manual and not event.needs_manual:
+            return False
+        
+        if self.filter_needs_location and event.spatial_coords is not None:
             return False
         
         if self.filter_label and event.label_user != self.filter_label:

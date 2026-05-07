@@ -1,8 +1,9 @@
 """Core data types and structures for uroflow analysis."""
 
 from dataclasses import dataclass, field
-from typing import Optional, Literal
+from typing import Optional, Literal, Tuple
 from datetime import datetime
+import numpy as np
 
 
 EventSource = Literal["auto", "acquisition", "manual"]
@@ -85,6 +86,42 @@ class DetectionParams:
 
 
 @dataclass
+class SpatialCoordinates:
+    """Spatial location of an event in both image and real-world coordinates."""
+    image_x: float  # Pixel x in video frame
+    image_y: float  # Pixel y in video frame
+    real_x_cm: float  # x in circular cage coordinate system (origin = center)
+    real_y_cm: float  # y in circular cage coordinate system
+
+    @property
+    def radius_cm(self) -> float:
+        """Distance from cage center in cm."""
+        return float(np.sqrt(self.real_x_cm**2 + self.real_y_cm**2))
+
+    @property
+    def theta_deg(self) -> float:
+        """Angle in degrees from positive x-axis, counterclockwise [0, 360)."""
+        return float(np.degrees(np.arctan2(self.real_y_cm, self.real_x_cm)) % 360.0)
+
+    def to_dict(self) -> dict:
+        return {
+            "image_x": self.image_x,
+            "image_y": self.image_y,
+            "real_x_cm": self.real_x_cm,
+            "real_y_cm": self.real_y_cm,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "SpatialCoordinates":
+        return cls(
+            image_x=d["image_x"],
+            image_y=d["image_y"],
+            real_x_cm=d["real_x_cm"],
+            real_y_cm=d["real_y_cm"],
+        )
+
+
+@dataclass
 class EventFeatures:
     """Computed features for an event (for triage, not classification)."""
     duration_s: float              # Event duration in seconds
@@ -135,6 +172,9 @@ class Event:
     
     # Wall clock string from CSV row at event creation (not updated when boundaries move)
     wall_clock_time: str = ""
+    
+    # Spatial location annotation
+    spatial_coords: Optional[SpatialCoordinates] = None
     
     # Timestamps for tracking edits
     created_at: str = field(default_factory=lambda: datetime.now().isoformat())
