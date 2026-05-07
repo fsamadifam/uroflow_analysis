@@ -4,7 +4,7 @@ from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
     QTabWidget, QLabel, QFileDialog, QMessageBox, QStatusBar,
     QMenuBar, QPushButton, QProgressDialog, QApplication,
-    QDialog, QFormLayout, QDoubleSpinBox, QDialogButtonBox
+    QDialog, QFormLayout, QDoubleSpinBox, QDialogButtonBox, QMenu
 )
 from PySide6.QtCore import Qt, Signal, QTimer, QObject
 from PySide6.QtGui import QAction, QKeySequence
@@ -998,10 +998,53 @@ class MainWindow(QMainWindow):
             )
             return
         
-        video_path = str(matches[0][0])
+        # Select video based on number of matches
+        selected_video_path = None
+        
+        if len(matches) == 1:
+            # Single match - use it directly
+            selected_video_path = str(matches[0][0])
+            
+        elif len(matches) <= 3:
+            # 2-3 matches - show popup menu to choose
+            menu = QMenu(self)
+            menu.setTitle("Select Video for Annotation")
+            
+            for video_path, video_dt, offset in matches:
+                offset_str = f"+{offset:.0f}s" if offset >= 0 else f"{offset:.0f}s"
+                action_text = f"{video_path.name} ({offset_str})"
+                action = menu.addAction(action_text)
+                action.setData(str(video_path))
+            
+            # Show menu at cursor position
+            action = menu.exec_(self.cursor().pos())
+            
+            if action:
+                selected_video_path = action.data()
+            else:
+                return  # User canceled
+                
+        else:
+            # More than 3 matches - show dialog to confirm best match
+            video_path, video_dt, offset = matches[0]
+            reply = QMessageBox.question(
+                self, "Multiple Videos Found",
+                f"Found {len(matches)} potential videos for this event.\n\n"
+                f"Use the closest match for annotation?\n{video_path.name}",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes
+            )
+            
+            if reply == QMessageBox.StandardButton.Yes:
+                selected_video_path = str(video_path)
+            else:
+                return  # User declined
+        
+        if not selected_video_path:
+            return
         
         dialog = EventAnnotationDialog(
-            video_path=video_path,
+            video_path=selected_video_path,
             calibration=calibration,
             event_label=event.label_user,
             parent=self,
