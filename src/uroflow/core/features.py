@@ -356,7 +356,7 @@ def get_feature_summary_stats(events: List[Event]) -> dict:
 def classify_event_heuristic(event: Event,
                              urine_min_mass_g: float = 0.1,
                              feces_min_mass_g: float = 0.05,
-                             slope_ratio_threshold: float = 0.15,
+                             slope_ratio_threshold: float = 2.5,
                              oscillation_threshold: float = 0.5) -> str:
     """Apply simple heuristic classification to an event based on slope pattern.
     
@@ -418,14 +418,12 @@ def classify_event_heuristic(event: Event,
     
     # Classification based on slope pattern
     # FECES: Sudden jump - high slope ratio (peak slope much higher than average)
-    # Typically slope_ratio > 2-3 means the mass jumped quickly then plateaued
-    if delta_mass >= feces_min_mass_g and slope_ratio >= 2.5:
+    if delta_mass >= feces_min_mass_g and slope_ratio >= slope_ratio_threshold:
         print(f"    -> Classified as FECES (sudden jump, slope_ratio={slope_ratio:.2f})")
         return "feces"
     
     # URINE: Gradual ramp - lower slope ratio (more uniform increase)
-    # Typically slope_ratio < 2 means mass increased gradually
-    if delta_mass >= urine_min_mass_g and slope_ratio < 2.5:
+    if delta_mass >= urine_min_mass_g and slope_ratio < slope_ratio_threshold:
         print(f"    -> Classified as URINE (gradual ramp, slope_ratio={slope_ratio:.2f})")
         return "urine"
     
