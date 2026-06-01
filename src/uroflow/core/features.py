@@ -358,16 +358,16 @@ def classify_event_heuristic(event: Event,
                              feces_min_mass_g: float = 0.05,
                              slope_ratio_threshold: float = 2.5,
                              oscillation_threshold: float = 0.5) -> str:
-    """Apply simple heuristic classification to an event based on slope pattern.
+    """Apply heuristic classification to an event based on size, duration, and shape.
     
     This is a deterministic rule-based classifier using thresholds.
     NOT machine learning. Results should be reviewed manually.
     
     Key insight:
-    - URINE: Slow ramp-like mass increase. The mass increases gradually over time.
-             Lower slope relative to total mass change (slope_ratio < threshold).
-    - FECES: Sudden jump in mass. Quick transition from baseline to new level.
-             Higher slope relative to total mass change (slope_ratio >= threshold).
+    - URINE: Usually a larger or more sustained mass increase. Some urine events
+             contain a sharp local slope, so size/duration are checked before the
+             slope-ratio fallback.
+    - FECES: Usually a short, sharp step with smaller-to-moderate mass gain.
     
     The slope_ratio is computed as: peak_slope * duration / delta_mass
     - For urine (slow ramp): low peak slope, so ratio is lower
@@ -415,6 +415,33 @@ def classify_event_heuristic(event: Event,
     if delta_mass <= 0:
         print(f"    -> Skipped: non-positive mass change")
         return ""
+
+    # Strong urine cues. These are intentionally checked before slope_ratio:
+    # longer/larger urine events can contain a brief high-slope burst that would
+    # otherwise look feces-like if the ratio were used alone.
+    large_urine_mass_g = max(0.75, urine_min_mass_g * 3.0)
+    sustained_urine_duration_s = 2.25
+    if delta_mass >= large_urine_mass_g:
+        print(f"    -> Classified as URINE (large mass gain {delta_mass:.3f}g)")
+        return "urine"
+
+    if delta_mass >= urine_min_mass_g and duration >= sustained_urine_duration_s:
+        print(f"    -> Classified as URINE (sustained event {duration:.2f}s)")
+        return "urine"
+
+    # Strong feces cue. Short, sharp moderate-mass steps can have a deceptively
+    # low slope_ratio because the whole event window is brief.
+    short_feces_duration_s = 1.50
+    feces_max_mass_g = 0.65
+    sharp_feces_peak_slope_g_s = 0.80
+    if (
+        delta_mass >= feces_min_mass_g
+        and delta_mass <= feces_max_mass_g
+        and duration <= short_feces_duration_s
+        and peak_slope >= sharp_feces_peak_slope_g_s
+    ):
+        print(f"    -> Classified as FECES (short sharp step)")
+        return "feces"
     
     # Classification based on slope pattern
     # FECES: Sudden jump - high slope ratio (peak slope much higher than average)

@@ -252,9 +252,9 @@ class DetectEventsDialog(QDialog):
         self.auto_classify_check = QCheckBox("Auto-classify events as urine/feces (heuristic)")
         self.auto_classify_check.setChecked(True)
         self.auto_classify_check.setToolTip(
-            "If checked, applies simple rule-based classification:\n"
-            "• Urine: Mass gain ≥0.3g, duration ≥3s, smooth slope\n"
-            "• Feces: Mass gain <0.5g, duration <5s, stable plateau\n"
+            "If checked, applies rule-based classification:\n"
+            "- Urine: larger or sustained mass gain, then gradual-slope fallback\n"
+            "- Feces: short sharp mass step, then sudden-jump fallback\n"
             "Uncertain events are flagged for manual review."
         )
         options_layout.addWidget(self.auto_classify_check)
