@@ -25,12 +25,9 @@ from uroflow.spatial.frame_extractor import (
 from uroflow.spatial.calibration import (
     CalibrationData,
     EllipseCalibration,
-    HomographyCalibration,
-    save_calibration,
 )
 from uroflow.spatial.transform import (
     fit_ellipse_to_points,
-    compute_homography,
     generate_ellipse_overlay_points,
     generate_grid_overlay,
     transform_point,
@@ -125,6 +122,7 @@ class CalibrationDialog(QDialog):
         self._ellipse_overlay: Optional[QGraphicsPathItem] = None
         self._grid_overlays: List[QGraphicsPathItem] = []
         self._current_calibration: Optional[CalibrationData] = None
+        self._calibration_frame_path = ""
 
         self._setup_ui()
 
@@ -275,6 +273,7 @@ class CalibrationDialog(QDialog):
             return
 
         self._frame = frame
+        self._calibration_frame_path = video_path
         self._display_frame(frame)
         self._frame_label.setText(Path(video_path).name)
         self._status.showMessage(
@@ -405,7 +404,9 @@ class CalibrationDialog(QDialog):
         cal.cage_radius_cm = cage_radius_cm
 
         self._current_calibration = CalibrationData(
-            method="ellipse", ellipse=cal
+            method="ellipse",
+            ellipse=cal,
+            calibration_frame_path=self._calibration_frame_path,
         )
 
         self._remove_overlays()
@@ -467,31 +468,11 @@ class CalibrationDialog(QDialog):
     # --- Save ---
 
     def _save_calibration(self):
-        """Save calibration to session config."""
+        """Accept calibration so the parent window can save it with the project."""
         if self._current_calibration is None or not self._current_calibration.is_valid():
             QMessageBox.warning(self, "Invalid", "No valid calibration to save.")
             return
 
-        if self._config_path:
-            try:
-                save_calibration(self._current_calibration, self._config_path)
-                self._status.showMessage("Calibration saved!", 3000)
-                self.calibration_saved.emit(self._current_calibration)
-                self.accept()
-            except Exception as e:
-                QMessageBox.critical(self, "Save Error", f"Failed to save:\n{e}")
-        else:
-            # No config path, ask user where to save
-            path, _ = QFileDialog.getSaveFileName(
-                self, "Save Calibration",
-                "spatial_calibration.json",
-                "JSON Files (*.json);;All Files (*)",
-            )
-            if path:
-                try:
-                    save_calibration(self._current_calibration, path)
-                    self._status.showMessage(f"Saved to {path}", 3000)
-                    self.calibration_saved.emit(self._current_calibration)
-                    self.accept()
-                except Exception as e:
-                    QMessageBox.critical(self, "Save Error", f"Failed to save:\n{e}")
+        self._status.showMessage("Calibration saved to project.", 3000)
+        self.calibration_saved.emit(self._current_calibration)
+        self.accept()

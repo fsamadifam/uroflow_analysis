@@ -244,7 +244,12 @@ class SpatialAnalysisDialog(QDialog):
         if not path:
             return
 
-        n = export_spatial_csv(self._events, path)
+        calibration_dict = self._calibration.to_dict() if self._calibration else None
+        n = export_spatial_csv(
+            self._events,
+            path,
+            spatial_calibration=calibration_dict,
+        )
         QMessageBox.information(
             self, "Export Complete",
             f"Exported {n} events with spatial coordinates to:\n{path}"

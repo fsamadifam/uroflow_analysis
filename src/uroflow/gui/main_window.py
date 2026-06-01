@@ -835,7 +835,11 @@ class MainWindow(QMainWindow):
         
         if csv_path:
             try:
-                export_events_csv(self.project.events, csv_path)
+                export_events_csv(
+                    self.project.events,
+                    csv_path,
+                    spatial_calibration=self.project.spatial_calibration,
+                )
                 QMessageBox.information(self, "Export Complete", f"Exported {len(self.project.events)} events")
             except Exception as e:
                 QMessageBox.critical(self, "Export Error", str(e))
@@ -866,13 +870,16 @@ class MainWindow(QMainWindow):
     def _open_calibration_dialog(self):
         """Open spatial calibration dialog."""
         from uroflow.spatial.gui.calibration_dialog import CalibrationDialog
+
+        if not self.project:
+            QMessageBox.warning(self, "No Project", "Please load or create a project first.")
+            return
         
         video_folder = ""
         config_path = ""
         
-        if self.project:
-            video_folder = self.project.video_folder_path or ""
-            config_path = self.project.session_config_path or ""
+        video_folder = self.project.video_folder_path or ""
+        config_path = self.project.session_config_path or ""
         
         dialog = CalibrationDialog(
             video_folder=video_folder,

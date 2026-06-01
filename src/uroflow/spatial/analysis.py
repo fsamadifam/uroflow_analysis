@@ -6,6 +6,10 @@ from pathlib import Path
 from typing import List, Optional, Tuple
 
 from uroflow.core.types import Event
+from uroflow.core.project_io import (
+    CALIBRATION_EXPORT_COLUMNS,
+    get_calibration_export_values,
+)
 
 
 def get_spatial_events(
@@ -204,6 +208,7 @@ def export_spatial_csv(
     events: List[Event],
     output_path: str,
     include_features: bool = True,
+    spatial_calibration: Optional[dict] = None,
 ) -> int:
     """Export events with spatial coordinates to a dedicated spatial CSV.
 
@@ -211,6 +216,7 @@ def export_spatial_csv(
         events: All events (will filter to those with spatial coords)
         output_path: Output CSV path
         include_features: Whether to include event features columns
+        spatial_calibration: Optional project calibration metadata to repeat per row
 
     Returns:
         Number of events exported
@@ -229,6 +235,9 @@ def export_spatial_csv(
     ]
     if include_features:
         headers.extend(["delta_mass_g", "peak_slope_g_per_s"])
+    headers.extend(CALIBRATION_EXPORT_COLUMNS)
+
+    calibration_values = get_calibration_export_values(spatial_calibration)
 
     with open(output_path, "w", newline="") as f:
         writer = csv.writer(f)
@@ -258,6 +267,7 @@ def export_spatial_csv(
             elif include_features:
                 row.extend(["", ""])
 
+            row.extend(calibration_values)
             writer.writerow(row)
 
     return len(spatial_events)

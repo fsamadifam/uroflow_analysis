@@ -243,16 +243,52 @@ def _clean_export_notes(notes: str) -> str:
     return notes
 
 
-def export_events_csv(events: list[Event], output_path: str):
+CALIBRATION_EXPORT_COLUMNS = [
+    'calibration_cage_radius_cm',
+    'calibration_center_x_px',
+    'calibration_center_y_px',
+    'calibration_semi_major_px',
+    'calibration_semi_minor_px',
+    'calibration_angle_rad',
+]
+
+
+def get_calibration_export_values(spatial_calibration: Optional[dict]) -> list:
+    """Return stable per-row CSV values describing the project calibration."""
+    values = {column: '' for column in CALIBRATION_EXPORT_COLUMNS}
+
+    if not spatial_calibration:
+        return [values[column] for column in CALIBRATION_EXPORT_COLUMNS]
+
+    ellipse = spatial_calibration.get('ellipse') or {}
+    homography = spatial_calibration.get('homography') or {}
+
+    if ellipse:
+        values['calibration_cage_radius_cm'] = ellipse.get('cage_radius_cm', '')
+        values['calibration_center_x_px'] = ellipse.get('center_x', '')
+        values['calibration_center_y_px'] = ellipse.get('center_y', '')
+        values['calibration_semi_major_px'] = ellipse.get('semi_major', '')
+        values['calibration_semi_minor_px'] = ellipse.get('semi_minor', '')
+        values['calibration_angle_rad'] = ellipse.get('angle_rad', '')
+    elif homography:
+        values['calibration_cage_radius_cm'] = homography.get('cage_radius_cm', '')
+
+    return [values[column] for column in CALIBRATION_EXPORT_COLUMNS]
+
+
+def export_events_csv(events: list[Event], output_path: str,
+                      spatial_calibration: Optional[dict] = None):
     """Export events to CSV format.
     
     Args:
         events: List of Event objects
         output_path: Path to output CSV file
+        spatial_calibration: Optional project calibration metadata to repeat per row
     """
     import csv
     
     output_path = Path(output_path)
+    calibration_values = get_calibration_export_values(spatial_calibration)
     
     with open(output_path, 'w', newline='') as f:
         writer = csv.writer(f)
@@ -266,6 +302,7 @@ def export_events_csv(events: list[Event], output_path: str):
             'peak_slope_g_per_s', 'mean_slope_g_per_s', 'oscillation_score',
             'crosses_gap',
             'image_x', 'image_y', 'real_x_cm', 'real_y_cm', 'radius_cm', 'theta_deg',
+            *CALIBRATION_EXPORT_COLUMNS,
         ])
         
         # Data rows
@@ -325,6 +362,8 @@ def export_events_csv(events: list[Event], output_path: str):
                 ])
             else:
                 row.extend(['', '', '', '', '', ''])
+
+            row.extend(calibration_values)
             
             writer.writerow(row)
 
