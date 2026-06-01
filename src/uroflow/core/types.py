@@ -45,12 +45,16 @@ class DetectionParams:
     
     These control how events are detected within segments.
     """
-    diff_test_time_s: float     # Rolling window duration for delta computation (seconds)
-    threshold_g: float           # Minimum mass change to trigger detection (grams)
-    min_event_len_s: float       # Minimum event duration (seconds)
-    max_event_len_s: float       # Maximum event duration (seconds) - filters out long artifacts
-    min_gap_merge_s: float       # Maximum gap to merge between events (seconds)
-    min_valid_frac: float        # Minimum fraction of valid samples in rolling window
+    diff_test_time_s: float = 0.75       # Rolling median smoothing window (seconds)
+    threshold_g: float = 0.03            # Legacy mass threshold, kept for saved-project compatibility
+    min_event_len_s: float = 0.30        # Minimum event duration (seconds)
+    max_event_len_s: float = 20.00       # Maximum event duration (seconds)
+    min_gap_merge_s: float = 0.50        # Maximum gap to merge between candidate regions (seconds)
+    min_valid_frac: float = 1.0 / 3.0    # Minimum valid fraction for smoothing window
+    slope_threshold_g_s: float = 0.15    # Positive slope threshold (grams/second)
+    expand_event_s: float = 0.50         # Expansion around merged candidate windows (seconds)
+    baseline_window_s: float = 1.00      # Pre/post baseline window for mass-step estimate (seconds)
+    min_delta_mass_g: float = 0.03       # Minimum cumulative mass step for a valid event (grams)
     
     @classmethod
     def from_session_config(cls, config: dict) -> 'DetectionParams':
@@ -62,27 +66,33 @@ class DetectionParams:
         Returns:
             DetectionParams with values from config or defaults
         """
-        snap = config.get('config_snapshot', {})
-        return cls(
-            diff_test_time_s=snap.get('diff_test_time', 5.0),
-            threshold_g=snap.get('threshold', 0.05),
-            min_event_len_s=2.0,  # defaults
-            max_event_len_s=30.0,  # default max duration 30 seconds
-            min_gap_merge_s=1.0,
-            min_valid_frac=0.8
-        )
+        return cls.default()
     
     @classmethod
     def default(cls) -> 'DetectionParams':
         """Create default detection parameters."""
-        return cls(
-            diff_test_time_s=5.0,
-            threshold_g=0.05,
-            min_event_len_s=2.0,
-            max_event_len_s=30.0,  # default max duration 30 seconds
-            min_gap_merge_s=1.0,
-            min_valid_frac=0.8
-        )
+        return cls()
+
+    @classmethod
+    def from_dict(cls, params_dict: dict) -> 'DetectionParams':
+        """Create detection parameters from saved JSON with migration support."""
+        if not params_dict:
+            return cls.default()
+
+        defaults = cls.default()
+        known_fields = defaults.__dict__.copy()
+
+        # Projects saved before the first-pass slope detector used different
+        # meanings for these fields. Prefer the new detector defaults.
+        if 'slope_threshold_g_s' not in params_dict:
+            return defaults
+
+        known_fields.update({
+            key: value
+            for key, value in params_dict.items()
+            if key in known_fields
+        })
+        return cls(**known_fields)
 
 
 @dataclass

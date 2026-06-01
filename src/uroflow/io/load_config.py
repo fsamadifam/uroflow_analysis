@@ -38,11 +38,17 @@ def get_detection_params_from_config(config: dict) -> dict:
     Returns:
         Dictionary with detection parameters (can be used to create DetectionParams)
     """
-    config_snapshot = config.get('config_snapshot', {})
-    
     params = {
-        'diff_test_time_s': config_snapshot.get('diff_test_time', 5.0),
-        'threshold_g': config_snapshot.get('threshold', 0.05),
+        'diff_test_time_s': 0.75,
+        'threshold_g': 0.03,
+        'min_event_len_s': 0.30,
+        'max_event_len_s': 20.00,
+        'min_gap_merge_s': 0.50,
+        'min_valid_frac': 1.0 / 3.0,
+        'slope_threshold_g_s': 0.15,
+        'expand_event_s': 0.50,
+        'baseline_window_s': 1.00,
+        'min_delta_mass_g': 0.03,
     }
     
     return params

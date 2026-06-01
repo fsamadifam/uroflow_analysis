@@ -2,10 +2,8 @@
 
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QDoubleSpinBox, QDialogButtonBox, QGroupBox, QFormLayout,
-    QCheckBox, QSpinBox
+    QDoubleSpinBox, QGroupBox, QFormLayout, QCheckBox
 )
-from PySide6.QtCore import Qt
 
 from uroflow.core.types import DetectionParams
 
@@ -36,41 +34,41 @@ class DetectEventsDialog(QDialog):
         
         # Info label
         info_label = QLabel(
-            "Configure parameters for automatic event detection.\n"
-            "Leave as defaults for typical uroflowmetry data."
+            "Configure the rolling-median, positive-slope first-pass detector.\n"
+            "Defaults match the validated uroflow event-window script."
         )
         info_label.setStyleSheet("color: #666; margin-bottom: 10px;")
         layout.addWidget(info_label)
         
         # Detection Parameters Group
-        detect_group = QGroupBox("Detection Threshold Parameters")
+        detect_group = QGroupBox("Slope Detection Parameters")
         detect_layout = QFormLayout()
         
-        # Rolling Window Duration
+        # Rolling median smoothing duration
         self.diff_test_time_spin = QDoubleSpinBox()
-        self.diff_test_time_spin.setRange(1.0, 30.0)
+        self.diff_test_time_spin.setRange(0.05, 30.0)
         self.diff_test_time_spin.setValue(self.params.diff_test_time_s)
-        self.diff_test_time_spin.setDecimals(1)
+        self.diff_test_time_spin.setDecimals(2)
         self.diff_test_time_spin.setSuffix(" s")
-        self.diff_test_time_spin.setSingleStep(0.5)
+        self.diff_test_time_spin.setSingleStep(0.05)
         self.diff_test_time_spin.setToolTip(
-            "Duration of rolling window for computing mass change.\n"
-            "Larger values smooth out noise but may miss fast events."
+            "Centered rolling median smoothing window.\n"
+            "Larger values suppress noise but can blur short events."
         )
-        detect_layout.addRow("Rolling Window:", self.diff_test_time_spin)
-        
-        # Mass Change Threshold
-        self.threshold_spin = QDoubleSpinBox()
-        self.threshold_spin.setRange(0.01, 1.0)
-        self.threshold_spin.setValue(self.params.threshold_g)
-        self.threshold_spin.setDecimals(3)
-        self.threshold_spin.setSuffix(" g")
-        self.threshold_spin.setSingleStep(0.01)
-        self.threshold_spin.setToolTip(
-            "Minimum mass change (in grams) to trigger event detection.\n"
-            "Lower values detect more events (including noise)."
+        detect_layout.addRow("Smoothing Window:", self.diff_test_time_spin)
+
+        # Positive slope threshold
+        self.slope_threshold_spin = QDoubleSpinBox()
+        self.slope_threshold_spin.setRange(0.001, 10.0)
+        self.slope_threshold_spin.setValue(self.params.slope_threshold_g_s)
+        self.slope_threshold_spin.setDecimals(3)
+        self.slope_threshold_spin.setSuffix(" g/s")
+        self.slope_threshold_spin.setSingleStep(0.01)
+        self.slope_threshold_spin.setToolTip(
+            "Minimum positive slope after smoothing to create a candidate region.\n"
+            "Lower values detect more events and more noise."
         )
-        detect_layout.addRow("Mass Threshold:", self.threshold_spin)
+        detect_layout.addRow("Slope Threshold:", self.slope_threshold_spin)
         
         detect_group.setLayout(detect_layout)
         layout.addWidget(detect_group)
@@ -81,11 +79,11 @@ class DetectEventsDialog(QDialog):
         
         # Minimum Event Duration
         self.min_event_len_spin = QDoubleSpinBox()
-        self.min_event_len_spin.setRange(0.5, 30.0)
+        self.min_event_len_spin.setRange(0.05, 30.0)
         self.min_event_len_spin.setValue(self.params.min_event_len_s)
-        self.min_event_len_spin.setDecimals(1)
+        self.min_event_len_spin.setDecimals(2)
         self.min_event_len_spin.setSuffix(" s")
-        self.min_event_len_spin.setSingleStep(0.5)
+        self.min_event_len_spin.setSingleStep(0.05)
         self.min_event_len_spin.setToolTip(
             "Minimum event duration. Events shorter than this are discarded."
         )
@@ -93,11 +91,11 @@ class DetectEventsDialog(QDialog):
         
         # Maximum Event Duration
         self.max_event_len_spin = QDoubleSpinBox()
-        self.max_event_len_spin.setRange(5.0, 300.0)
+        self.max_event_len_spin.setRange(0.5, 300.0)
         self.max_event_len_spin.setValue(self.params.max_event_len_s)
-        self.max_event_len_spin.setDecimals(1)
+        self.max_event_len_spin.setDecimals(2)
         self.max_event_len_spin.setSuffix(" s")
-        self.max_event_len_spin.setSingleStep(5.0)
+        self.max_event_len_spin.setSingleStep(0.5)
         self.max_event_len_spin.setToolTip(
             "Maximum event duration. Events longer than this are discarded.\n"
             "Helps filter out long artifacts (e.g., evaporation over hours)."
@@ -106,35 +104,71 @@ class DetectEventsDialog(QDialog):
         
         # Gap Merge Distance
         self.min_gap_merge_spin = QDoubleSpinBox()
-        self.min_gap_merge_spin.setRange(0.1, 10.0)
+        self.min_gap_merge_spin.setRange(0.0, 10.0)
         self.min_gap_merge_spin.setValue(self.params.min_gap_merge_s)
-        self.min_gap_merge_spin.setDecimals(1)
+        self.min_gap_merge_spin.setDecimals(2)
         self.min_gap_merge_spin.setSuffix(" s")
-        self.min_gap_merge_spin.setSingleStep(0.5)
+        self.min_gap_merge_spin.setSingleStep(0.05)
         self.min_gap_merge_spin.setToolTip(
-            "Maximum gap between detections to merge into single event.\n"
-            "Events separated by less than this are combined."
+            "Maximum gap between positive-slope candidate regions to merge.\n"
+            "Regions separated by less than this are combined."
         )
         filter_layout.addRow("Merge Gap:", self.min_gap_merge_spin)
+
+        # Minimum cumulative mass step
+        self.min_delta_mass_spin = QDoubleSpinBox()
+        self.min_delta_mass_spin.setRange(0.001, 10.0)
+        self.min_delta_mass_spin.setValue(self.params.min_delta_mass_g)
+        self.min_delta_mass_spin.setDecimals(3)
+        self.min_delta_mass_spin.setSuffix(" g")
+        self.min_delta_mass_spin.setSingleStep(0.01)
+        self.min_delta_mass_spin.setToolTip(
+            "Minimum pre/post smoothed mass increase required to validate an event."
+        )
+        filter_layout.addRow("Min Delta Mass:", self.min_delta_mass_spin)
         
         filter_group.setLayout(filter_layout)
         layout.addWidget(filter_group)
         
-        # Advanced Parameters Group (collapsed by default)
+        # Advanced Parameters Group
         advanced_group = QGroupBox("Advanced Parameters")
         advanced_layout = QFormLayout()
+
+        # Event window expansion
+        self.expand_event_spin = QDoubleSpinBox()
+        self.expand_event_spin.setRange(0.0, 10.0)
+        self.expand_event_spin.setValue(self.params.expand_event_s)
+        self.expand_event_spin.setDecimals(2)
+        self.expand_event_spin.setSuffix(" s")
+        self.expand_event_spin.setSingleStep(0.05)
+        self.expand_event_spin.setToolTip(
+            "Amount to expand each merged candidate window before validation."
+        )
+        advanced_layout.addRow("Expand Window:", self.expand_event_spin)
+
+        # Baseline window
+        self.baseline_window_spin = QDoubleSpinBox()
+        self.baseline_window_spin.setRange(0.05, 60.0)
+        self.baseline_window_spin.setValue(self.params.baseline_window_s)
+        self.baseline_window_spin.setDecimals(2)
+        self.baseline_window_spin.setSuffix(" s")
+        self.baseline_window_spin.setSingleStep(0.05)
+        self.baseline_window_spin.setToolTip(
+            "Pre/post window used to estimate cumulative smoothed mass step."
+        )
+        advanced_layout.addRow("Baseline Window:", self.baseline_window_spin)
         
         # Minimum Valid Fraction
         self.min_valid_frac_spin = QDoubleSpinBox()
-        self.min_valid_frac_spin.setRange(0.5, 1.0)
+        self.min_valid_frac_spin.setRange(0.1, 1.0)
         self.min_valid_frac_spin.setValue(self.params.min_valid_frac)
         self.min_valid_frac_spin.setDecimals(2)
         self.min_valid_frac_spin.setSingleStep(0.05)
         self.min_valid_frac_spin.setToolTip(
             "Minimum fraction of valid (non-NaN) samples required\n"
-            "in rolling window for computation."
+            "inside the rolling median smoothing window."
         )
-        advanced_layout.addRow("Min Valid Fraction:", self.min_valid_frac_spin)
+        advanced_layout.addRow("Smoothing Valid Fraction:", self.min_valid_frac_spin)
         
         advanced_group.setLayout(advanced_layout)
         layout.addWidget(advanced_group)
@@ -199,19 +233,19 @@ class DetectEventsDialog(QDialog):
         self.classify_only_check.toggled.connect(self._on_classify_only_toggled)
         options_layout.addWidget(self.classify_only_check)
         
-        self.clear_existing_check = QCheckBox("Clear existing auto-detected events before detection")
+        self.clear_existing_check = QCheckBox("Clear existing auto/acquisition events before detection")
         self.clear_existing_check.setChecked(True)
         self.clear_existing_check.setToolTip(
-            "If checked, removes all existing auto-detected events before running.\n"
-            "Manual and acquisition events are preserved."
+            "If checked, removes existing auto-detected and acquisition-flag events before running.\n"
+            "Manual and locked events are preserved."
         )
         options_layout.addWidget(self.clear_existing_check)
         
         self.use_acquisition_check = QCheckBox("Also detect from acquisition flags (if present)")
-        self.use_acquisition_check.setChecked(True)
+        self.use_acquisition_check.setChecked(False)
         self.use_acquisition_check.setToolTip(
             "If checked, creates events from acquisition system flags\n"
-            "in addition to auto-detection."
+            "in addition to the first-pass slope detector."
         )
         options_layout.addWidget(self.use_acquisition_check)
         
@@ -268,10 +302,13 @@ class DetectEventsDialog(QDialog):
         defaults = DetectionParams.default()
         
         self.diff_test_time_spin.setValue(defaults.diff_test_time_s)
-        self.threshold_spin.setValue(defaults.threshold_g)
+        self.slope_threshold_spin.setValue(defaults.slope_threshold_g_s)
         self.min_event_len_spin.setValue(defaults.min_event_len_s)
         self.max_event_len_spin.setValue(defaults.max_event_len_s)
         self.min_gap_merge_spin.setValue(defaults.min_gap_merge_s)
+        self.min_delta_mass_spin.setValue(defaults.min_delta_mass_g)
+        self.expand_event_spin.setValue(defaults.expand_event_s)
+        self.baseline_window_spin.setValue(defaults.baseline_window_s)
         self.min_valid_frac_spin.setValue(defaults.min_valid_frac)
     
     def _on_classify_only_toggled(self, checked: bool):
@@ -295,13 +332,18 @@ class DetectEventsDialog(QDialog):
         Returns:
             DetectionParams with user-configured values
         """
+        min_delta_mass_g = self.min_delta_mass_spin.value()
         return DetectionParams(
             diff_test_time_s=self.diff_test_time_spin.value(),
-            threshold_g=self.threshold_spin.value(),
+            threshold_g=min_delta_mass_g,
             min_event_len_s=self.min_event_len_spin.value(),
             max_event_len_s=self.max_event_len_spin.value(),
             min_gap_merge_s=self.min_gap_merge_spin.value(),
-            min_valid_frac=self.min_valid_frac_spin.value()
+            min_valid_frac=self.min_valid_frac_spin.value(),
+            slope_threshold_g_s=self.slope_threshold_spin.value(),
+            expand_event_s=self.expand_event_spin.value(),
+            baseline_window_s=self.baseline_window_spin.value(),
+            min_delta_mass_g=min_delta_mass_g,
         )
     
     def should_clear_existing(self) -> bool:

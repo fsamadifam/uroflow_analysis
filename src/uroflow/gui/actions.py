@@ -157,7 +157,7 @@ class EditBoundaryCommand(Command):
 
 
 class DetectEventsCommand(Command):
-    """Command to run event detection and add detected events to project.
+    """Command to replace project events with detection results.
     
     This command supports undo by storing the previous event list state.
     """
@@ -170,7 +170,7 @@ class DetectEventsCommand(Command):
         
         Args:
             project: Project to modify
-            new_events: List of newly detected events to add
+            new_events: Resolved full event list after detection
             removed_event_ids: List of event IDs that were removed (auto events cleared)
             old_params: Previous detection params (for undo)
             new_params: New detection params used
@@ -181,26 +181,17 @@ class DetectEventsCommand(Command):
         self.old_params = old_params
         self.new_params = new_params
         
-        # Store removed events for undo
-        self.removed_events: List[Event] = []
+        # Store previous events for undo
+        self.previous_events: List[Event] = []
     
     def execute(self):
-        """Add detected events to project."""
-        # Store events that will be removed (for undo)
-        self.removed_events = [
-            e for e in self.project.events 
-            if e.event_id in self.removed_event_ids
-        ]
-        
-        # Remove old auto events
-        self.project.events = [
-            e for e in self.project.events 
-            if e.event_id not in self.removed_event_ids
-        ]
-        
-        # Add new events
-        self.project.events.extend(self.new_events)
-        
+        """Apply detected/resolved events to project."""
+        self.previous_events = self.project.events.copy()
+
+        # Detection produces a fully resolved event list, including preserved
+        # manual/locked events and newly detected events.
+        self.project.events = self.new_events.copy()
+
         # Sort by time
         self.project.sort_events_by_time()
         
@@ -212,16 +203,8 @@ class DetectEventsCommand(Command):
     
     def undo(self):
         """Restore previous event state."""
-        # Remove newly added events
-        new_event_ids = {e.event_id for e in self.new_events}
-        self.project.events = [
-            e for e in self.project.events 
-            if e.event_id not in new_event_ids
-        ]
-        
-        # Restore removed events
-        self.project.events.extend(self.removed_events)
-        
+        self.project.events = self.previous_events.copy()
+
         # Sort by time
         self.project.sort_events_by_time()
         
@@ -232,7 +215,7 @@ class DetectEventsCommand(Command):
         self.project.update_modified()
     
     def description(self) -> str:
-        return f"Detect events ({len(self.new_events)} found)"
+        return f"Detect events ({len(self.new_events)} total)"
 
 
 class UndoStack:

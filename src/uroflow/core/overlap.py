@@ -10,8 +10,8 @@ def resolve_overlaps(events: List[Event]) -> List[Event]:
     
     Priority rules:
     1. Manual events (source="manual" or locked=True) always win
-    2. Acquisition-flagged events (source="acquisition") have medium priority
-    3. Auto-detected events (source="auto") have lowest priority
+    2. Auto-detected events (source="auto") keep refined detector boundaries
+    3. Acquisition-flagged events (source="acquisition") are supplemental markers
     
     Resolution strategies:
     - Same-label overlaps → merge boundaries
@@ -129,10 +129,10 @@ def _event_priority(event: Event) -> int:
     
     if event.source == "manual":
         return 100  # Manual events high priority
-    elif event.source == "acquisition":
-        return 50   # Acquisition medium priority
-    else:  # "auto"
-        return 10   # Auto-detected lowest priority
+    elif event.source == "auto":
+        return 50   # Auto-detected events have refined boundaries
+    else:  # "acquisition"
+        return 10   # Acquisition flags are marker windows, not refined boundaries
 
 
 def _merge_events(event1: Event, event2: Event) -> Event:

@@ -31,6 +31,45 @@ from uroflow.gui.actions import UndoStack, LabelEventCommand, DeleteEventCommand
 from uroflow.gui.detect_events_dialog import DetectEventsDialog
 
 
+def _event_interval_distance_s(event, reference_event) -> float:
+    """Return seconds between two event windows, or 0 if they overlap."""
+    if event.overlaps_with(reference_event):
+        return 0.0
+    if event.end_time_s <= reference_event.start_time_s:
+        return reference_event.start_time_s - event.end_time_s
+    return event.start_time_s - reference_event.end_time_s
+
+
+def _filter_supplemental_acquisition_events(acq_events: list,
+                                            reference_events: list,
+                                            min_separation_s: float) -> tuple[list, int]:
+    """Keep acquisition events only when they are not near refined events."""
+    if not acq_events or not reference_events:
+        return acq_events, 0
+
+    filtered = []
+    skipped = 0
+
+    for acq_event in acq_events:
+        has_nearby_reference = any(
+            _event_interval_distance_s(acq_event, reference_event) <= min_separation_s
+            for reference_event in reference_events
+        )
+
+        if has_nearby_reference:
+            skipped += 1
+            continue
+
+        acq_event.needs_manual = True
+        if acq_event.notes:
+            acq_event.notes += " (no nearby auto detection)"
+        else:
+            acq_event.notes = "From acquisition flags (no nearby auto detection)"
+        filtered.append(acq_event)
+
+    return filtered, skipped
+
+
 class MainWindow(QMainWindow):
     """Main application window."""
     
@@ -1428,23 +1467,14 @@ class MainWindow(QMainWindow):
             progress.setValue(1)
             QApplication.processEvents()
             
-            # Identify events to remove (if clearing existing detected events)
-            # Clear both auto and acquisition events when re-detecting
-            # BUT preserve locked events and manual events
+            # Identify events to remove (if clearing existing detected/acquisition events).
+            # Locked and manual events are preserved.
             removed_event_ids = []
             if clear_existing:
-                # Clear auto events (but preserve locked ones)
                 removed_event_ids = [
                     e.event_id for e in self.project.events 
-                    if e.source == "auto" and not e.locked
+                    if e.source in ("auto", "acquisition") and not e.locked
                 ]
-                # Also clear acquisition events if we're re-detecting from acquisition
-                # (but preserve locked ones)
-                if use_acquisition:
-                    removed_event_ids.extend([
-                        e.event_id for e in self.project.events 
-                        if e.source == "acquisition" and not e.locked
-                    ])
             
             # Preserve locked and manual events from existing project
             preserved_events = [
@@ -1489,6 +1519,21 @@ class MainWindow(QMainWindow):
                             self.timestamp, self.mass, acq_windows, self.segments
                         )
                         print(f"Acquisition events created: {len(acq_events)}")
+                        acq_min_separation_s = max(
+                            1.5,
+                            params.expand_event_s + params.baseline_window_s
+                        )
+                        acq_events, skipped_acq_events = _filter_supplemental_acquisition_events(
+                            acq_events,
+                            reference_events=preserved_events + auto_events,
+                            min_separation_s=acq_min_separation_s,
+                        )
+                        if skipped_acq_events:
+                            print(
+                                f"Skipped {skipped_acq_events} acquisition flag event(s) "
+                                f"near refined events (within {acq_min_separation_s:.2f}s)"
+                            )
+                        print(f"Supplemental acquisition events kept: {len(acq_events)}")
                         new_events.extend(acq_events)
                 except Exception as e:
                     print(f"Warning: Could not process acquisition flags: {e}")

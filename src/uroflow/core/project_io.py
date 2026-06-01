@@ -8,7 +8,14 @@ from datetime import datetime
 from dataclasses import asdict
 import numpy as np
 
-from uroflow.core.types import Project, Event, DetectionParams, EventFeatures, SpatialCoordinates
+from uroflow.core.types import (
+    Project,
+    Event,
+    DetectionParams,
+    EventFeatures,
+    SpatialCoordinates,
+    get_human_friendly_id,
+)
 
 
 class NumpyEncoder(json.JSONEncoder):
@@ -128,8 +135,8 @@ def _dict_to_project(project_dict: dict) -> Project:
         Project object
     """
     # Parse detection params
-    params_dict = project_dict['detection_params']
-    detection_params = DetectionParams(**params_dict)
+    params_dict = project_dict.get('detection_params', {})
+    detection_params = DetectionParams.from_dict(params_dict)
     
     # Parse events
     events = [_dict_to_event(e) for e in project_dict['events']]
@@ -220,6 +227,22 @@ def _dict_to_event(event_dict: dict) -> Event:
     return event
 
 
+def _clean_export_notes(notes: str) -> str:
+    """Remove obsolete detector debug metrics from notes before CSV export."""
+    if not notes:
+        return ""
+
+    if notes.startswith("First-pass slope detector:"):
+        suffix = ""
+        if " [merged]" in notes:
+            suffix += " [merged]"
+        if " [trimmed]" in notes:
+            suffix += " [trimmed]"
+        return "First-pass slope detector" + suffix
+
+    return notes
+
+
 def export_events_csv(events: list[Event], output_path: str):
     """Export events to CSV format.
     
@@ -236,42 +259,59 @@ def export_events_csv(events: list[Event], output_path: str):
         
         # Header
         writer.writerow([
-            'event_id', 'start_idx', 'end_idx', 
-            'start_time_s', 'end_time_s', 'duration_s',
-            'source', 'locked', 'label_user', 'notes',
-            'delta_mass_g', 'peak_slope_g_per_s', 'mean_slope_g_per_s', 'oscillation_score',
-            'crosses_gap', 'needs_manual',
+            'human_event_id', 'event_id', 'start_idx', 'end_idx',
+            'start_time_s', 'wall_clock_time', 'end_time_s', 'duration_s',
+            'delta_mass_g', 'label_user', 'location', 'source', 'locked',
+            'needs_manual', 'notes',
+            'peak_slope_g_per_s', 'mean_slope_g_per_s', 'oscillation_score',
+            'crosses_gap',
             'image_x', 'image_y', 'real_x_cm', 'real_y_cm', 'radius_cm', 'theta_deg',
         ])
         
         # Data rows
-        for event in sorted(events, key=lambda e: e.start_time_s):
+        sorted_events = sorted(events, key=lambda e: e.start_time_s)
+        for event in sorted_events:
+            location = ""
+            if event.spatial_coords:
+                location = f"({event.spatial_coords.real_x_cm:.1f}, {event.spatial_coords.real_y_cm:.1f})"
+
             row = [
+                get_human_friendly_id(event, sorted_events),
                 event.event_id,
                 event.start_idx,
                 event.end_idx,
                 event.start_time_s,
+                event.wall_clock_time,
                 event.end_time_s,
                 event.duration_s(),
-                event.source,
-                event.locked,
-                event.label_user,
-                event.notes,
             ]
             
             # Add features if present
             if event.features:
                 row.extend([
                     event.features.delta_mass_g,
+                ])
+            else:
+                row.extend([''])
+
+            row.extend([
+                event.label_user,
+                location,
+                event.source,
+                event.locked,
+                event.needs_manual,
+                _clean_export_notes(event.notes),
+            ])
+
+            if event.features:
+                row.extend([
                     event.features.peak_slope_g_per_s,
                     event.features.mean_slope_g_per_s,
                     event.features.oscillation_score,
                     event.features.crosses_gap,
                 ])
             else:
-                row.extend(['', '', '', '', ''])
-            
-            row.append(event.needs_manual)
+                row.extend(['', '', '', ''])
             
             # Add spatial coordinates
             if event.spatial_coords:
