@@ -25,6 +25,23 @@ def exception_hook(exctype, value, tb):
 
 sys.excepthook = exception_hook
 
+from PySide6.QtGui import QPalette, QColor
+
+def apply_dark_theme(app):
+    app.setStyle("Fusion")
+
+    palette = QPalette()
+    palette.setColor(QPalette.Window, QColor(30, 30, 30))
+    palette.setColor(QPalette.WindowText, QColor(255, 255, 255))
+    palette.setColor(QPalette.Base, QColor(45, 45, 45))
+    palette.setColor(QPalette.AlternateBase, QColor(55, 55, 55))
+    palette.setColor(QPalette.Text, QColor(255, 255, 255))
+    palette.setColor(QPalette.Button, QColor(45, 45, 45))
+    palette.setColor(QPalette.ButtonText, QColor(255, 255, 255))
+    palette.setColor(QPalette.Highlight, QColor(85, 85, 70))
+    palette.setColor(QPalette.HighlightedText, QColor(255, 255, 255))
+
+    app.setPalette(palette)
 
 def main():
     """Main GUI entry point."""
@@ -51,6 +68,7 @@ def main():
     
     # Create Qt application
     app = QApplication(sys.argv)
+    apply_dark_theme(app)
     app.setApplicationName("Uroflow Analysis")
     app.setOrganizationName("Uroflow")
     
