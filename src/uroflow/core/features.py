@@ -9,7 +9,8 @@ from uroflow.core.segments import check_event_crosses_gap
 def compute_event_features(event: Event,
                            timestamp: np.ndarray,
                            mass: np.ndarray,
-                           segments: List[Segment]) -> EventFeatures:
+                           segments: List[Segment],
+                           baseline_window_s: float = 1.0) -> EventFeatures:
     """Compute features for a single event.
     
     Features are used for triage/sorting, NOT for automated classification.
@@ -19,6 +20,7 @@ def compute_event_features(event: Event,
         timestamp: Full time array
         mass: Full mass array
         segments: List of Segment objects
+        baseline_window_s: Pre/post baseline window for delta mass (seconds)
         
     Returns:
         EventFeatures object
@@ -26,19 +28,27 @@ def compute_event_features(event: Event,
     Notes:
         If event crosses a gap, some features may be NaN or unreliable
     """
-    # Extract event window
-    event_t = timestamp[event.start_idx:event.end_idx]
-    event_m = mass[event.start_idx:event.end_idx]
+    # Use boundary times so manual edits update features continuously
+    event_mask = (
+        (timestamp >= event.start_time_s) &
+        (timestamp <= event.end_time_s)
+    )
+    event_t = timestamp[event_mask]
+    event_m = mass[event_mask]
     
     # Check if crosses gap
     crosses_gap = check_event_crosses_gap(event.start_idx, event.end_idx, segments)
     
-    # Compute duration
-    duration_s = event_t[-1] - event_t[0] if len(event_t) > 1 else 0.0
+    # Compute duration from boundary times (matches detail plot lines)
+    duration_s = event.end_time_s - event.start_time_s
     
-    # Compute delta mass (pre vs post)
+    # Compute delta mass (pre vs post, anchored to boundary times)
     delta_mass_g = _compute_delta_mass(
-        timestamp, mass, event.start_idx, event.end_idx
+        timestamp,
+        mass,
+        event.start_time_s,
+        event.end_time_s,
+        baseline_window_s=baseline_window_s,
     )
     
     # Compute peak slope (sharpness)
@@ -78,7 +88,8 @@ def compute_features_for_events(events: List[Event],
                                 timestamp: np.ndarray,
                                 mass: np.ndarray,
                                 segments: List[Segment],
-                                metadata: Optional[dict] = None) -> List[Event]:
+                                metadata: Optional[dict] = None,
+                                baseline_window_s: float = 1.0) -> List[Event]:
     """Compute features for all events in place.
     
     Args:
@@ -87,12 +98,15 @@ def compute_features_for_events(events: List[Event],
         mass: Full mass array
         segments: List of Segment objects
         metadata: Optional metadata dict with wall_clock_time array
+        baseline_window_s: Pre/post baseline window for delta mass (seconds)
         
     Returns:
         Same list of events with features populated
     """
     for event in events:
-        event.features = compute_event_features(event, timestamp, mass, segments)
+        event.features = compute_event_features(
+            event, timestamp, mass, segments, baseline_window_s=baseline_window_s
+        )
         
         # Set needs_manual flag if crosses gap
         if event.features.crosses_gap:
@@ -133,44 +147,39 @@ def _get_wall_clock_for_event(event: Event, metadata: dict) -> str:
 
 def _compute_delta_mass(timestamp: np.ndarray,
                        mass: np.ndarray,
-                       start_idx: int,
-                       end_idx: int,
-                       baseline_window_s: float = 10.0,
-                       post_window_s: float = 5.0) -> float:
+                       start_time_s: float,
+                       end_time_s: float,
+                       baseline_window_s: float = 1.0) -> float:
     """Compute net mass change: post - pre using robust statistics.
+    
+    Baseline windows are anchored to the event boundary times so manual
+    boundary edits update delta mass the same way duration updates.
     
     Args:
         timestamp: Full time array
         mass: Full mass array
-        start_idx: Event start index
-        end_idx: Event end index
-        baseline_window_s: Duration before event for baseline (seconds)
-        post_window_s: Duration after event for post measurement (seconds)
+        start_time_s: Event start time in seconds
+        end_time_s: Event end time in seconds
+        baseline_window_s: Duration before/after boundaries for baseline (seconds)
         
     Returns:
         Delta mass in grams (post - pre)
     """
-    # Find pre-event baseline window
-    pre_start_time = timestamp[start_idx] - baseline_window_s
-    pre_start_idx = np.searchsorted(timestamp, pre_start_time)
-    pre_start_idx = max(0, pre_start_idx)
+    pre_mask = (
+        (timestamp >= start_time_s - baseline_window_s) &
+        (timestamp <= start_time_s)
+    )
+    pre_median = np.nanmedian(mass[pre_mask]) if np.any(pre_mask) else np.nan
     
-    pre_mass = mass[pre_start_idx:start_idx]
-    pre_median = np.nanmedian(pre_mass) if len(pre_mass) > 0 else np.nan
+    post_mask = (
+        (timestamp >= end_time_s) &
+        (timestamp <= end_time_s + baseline_window_s)
+    )
+    post_median = np.nanmedian(mass[post_mask]) if np.any(post_mask) else np.nan
     
-    # Find post-event window
-    post_end_time = timestamp[end_idx - 1] + post_window_s if end_idx > 0 else timestamp[-1]
-    post_end_idx = np.searchsorted(timestamp, post_end_time)
-    post_end_idx = min(len(timestamp), post_end_idx)
-    
-    post_mass = mass[end_idx:post_end_idx]
-    post_median = np.nanmedian(post_mass) if len(post_mass) > 0 else np.nan
-    
-    # Compute delta
     if np.isfinite(pre_median) and np.isfinite(post_median):
-        return post_median - pre_median
-    else:
-        return np.nan
+        return float(post_median - pre_median)
+    return np.nan
 
 
 def _compute_peak_slope(timestamp: np.ndarray, mass: np.ndarray, window: int = 5) -> float:
@@ -293,7 +302,8 @@ def _compute_oscillation_score(mass: np.ndarray, window: int = 5) -> float:
 def recompute_features_for_event(event: Event,
                                  timestamp: np.ndarray,
                                  mass: np.ndarray,
-                                 segments: List[Segment]):
+                                 segments: List[Segment],
+                                 baseline_window_s: float = 1.0):
     """Recompute features for a single event (after boundary edit).
     
     Args:
@@ -301,8 +311,11 @@ def recompute_features_for_event(event: Event,
         timestamp: Full time array
         mass: Full mass array
         segments: List of Segment objects
+        baseline_window_s: Pre/post baseline window for delta mass (seconds)
     """
-    event.features = compute_event_features(event, timestamp, mass, segments)
+    event.features = compute_event_features(
+        event, timestamp, mass, segments, baseline_window_s=baseline_window_s
+    )
     
     # Update needs_manual flag
     if event.features.crosses_gap:

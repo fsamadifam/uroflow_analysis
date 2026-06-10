@@ -139,7 +139,13 @@ class EditBoundaryCommand(Command):
             event.end_time_s = self.new_end_time
             
             # Recompute features
-            recompute_features_for_event(event, self.timestamp, self.mass, self.segments)
+            recompute_features_for_event(
+                event,
+                self.timestamp,
+                self.mass,
+                self.segments,
+                baseline_window_s=self.project.detection_params.baseline_window_s,
+            )
     
     def undo(self):
         """Restore old boundaries."""

@@ -484,7 +484,14 @@ class MainWindow(QMainWindow):
                 progress.setLabelText("Computing features...")
                 QApplication.processEvents()
                 from uroflow.core.features import compute_features_for_events
-                events = compute_features_for_events(events, timestamp, mass, segments, metadata)
+                events = compute_features_for_events(
+                    events,
+                    timestamp,
+                    mass,
+                    segments,
+                    metadata,
+                    baseline_window_s=detection_params.baseline_window_s,
+                )
                 print(f"Computed features for {len(events)} events")
             
             progress.setValue(5)
@@ -1316,12 +1323,18 @@ class MainWindow(QMainWindow):
             event.start_time_s = new_start_time
             event.end_time_s = new_end_time
             event.start_idx = int(np.searchsorted(self.timestamp, new_start_time))
-            event.end_idx = int(np.searchsorted(self.timestamp, new_end_time))
+            event.end_idx = int(np.searchsorted(self.timestamp, new_end_time, side='right'))
             event.update_modified()
             
-            # Recompute features for this event (now uses updated indices)
-            from uroflow.core.features import compute_features_for_events
-            compute_features_for_events([event], self.timestamp, self.mass, self.segments, self.metadata)
+            baseline_window_s = self.project.detection_params.baseline_window_s
+            compute_features_for_events(
+                [event],
+                self.timestamp,
+                self.mass,
+                self.segments,
+                self.metadata,
+                baseline_window_s=baseline_window_s,
+            )
             
             # Update just this event in overview plot (faster, avoids crash)
             self.overview_plot.update_event_bounds(event_id, new_start_time, new_end_time)
@@ -1366,7 +1379,7 @@ class MainWindow(QMainWindow):
         
         # Compute indices from times
         start_idx = int(np.searchsorted(self.timestamp, start_time))
-        end_idx = int(np.searchsorted(self.timestamp, end_time))
+        end_idx = int(np.searchsorted(self.timestamp, end_time, side='right'))
         
         new_event = Event(
             event_id=str(uuid.uuid4()),
@@ -1382,7 +1395,14 @@ class MainWindow(QMainWindow):
         )
         
         # Compute features (also populates wall_clock_time)
-        compute_features_for_events([new_event], self.timestamp, self.mass, self.segments, self.metadata)
+        compute_features_for_events(
+            [new_event],
+            self.timestamp,
+            self.mass,
+            self.segments,
+            self.metadata,
+            baseline_window_s=self.project.detection_params.baseline_window_s,
+        )
         
         # Add to project
         self.project.events.append(new_event)
@@ -1594,7 +1614,12 @@ class MainWindow(QMainWindow):
             all_events = resolve_overlaps(all_events)
             print(f"After overlap resolution: {len(all_events)} events")
             all_events = compute_features_for_events(
-                all_events, self.timestamp, self.mass, self.segments, self.metadata
+                all_events,
+                self.timestamp,
+                self.mass,
+                self.segments,
+                self.metadata,
+                baseline_window_s=self.project.detection_params.baseline_window_s,
             )
             print(f"Features computed for {len(all_events)} events")
             
