@@ -8,18 +8,6 @@ Uroflow Analysis GUI
 pip install -e .
 ```
 
-Dev: `pip install -e ".[dev]"` then `pytest`.
-
-## Commands
-
-```bash
-uroflow-detect <data.csv> <session_config.json> --output <dir>
-uroflow-gui <dir>/project.json
-uroflow-gui --csv <data.csv> --config <session_config.json>
-```
-
-`uroflow-detect` writes `project.json` and `events_auto.csv`. Use **QUICKSTART.md** for a full walkthrough and shortcuts.
-
 ## Shortcuts
 
 `U`/`F`/`B` urine/feces/bad · `Delete` remove · `→`/`←` next/prev · `Shift+→`/`Shift+←` unlabeled · `[` `]` / `{` `}` nudge start/end · `Ctrl+S` save · `Ctrl+Z`/`Ctrl+Y` undo/redo · `Ctrl+E` export CSV · `Ctrl+O`/`Ctrl+N`/`Ctrl+Q` open/new/quit
