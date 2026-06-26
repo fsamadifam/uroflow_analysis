@@ -2,7 +2,7 @@
 
 import numpy as np
 import pyqtgraph as pg
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QScrollBar
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QScrollBar, QComboBox
 from PySide6.QtCore import Signal, Qt
 from PySide6.QtGui import QColor
 
@@ -1070,6 +1070,7 @@ class DetailPlot(QWidget):
         self.current_event = None
         self.window_padding_s = 30.0  # Show ±30s around event
         self._setting_event = False  # Flag to block signals during event setup
+        self.plot_style = "line"
         
         self._setup_ui()
     
@@ -1078,6 +1079,18 @@ class DetailPlot(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         
+        toolbar = QHBoxLayout()
+        toolbar.setContentsMargins(0, 0, 0, 0)
+        toolbar.addWidget(QLabel("Detail plot:"))
+
+        self.plot_style_combo = QComboBox()
+        self.plot_style_combo.addItem("Line", "line")
+        self.plot_style_combo.addItem("Scatter", "scatter")
+        self.plot_style_combo.currentIndexChanged.connect(self._on_plot_style_changed)
+        toolbar.addWidget(self.plot_style_combo)
+        toolbar.addStretch()
+        layout.addLayout(toolbar)
+
         # Create plot widget
         self.plot_widget = pg.PlotWidget()
         self.plot_widget.setBackground('w')
@@ -1120,6 +1133,7 @@ class DetailPlot(QWidget):
             symbolSize=3,
             symbolBrush='k'
         )
+        self._apply_plot_style()
         
         # Boundary lines (draggable)
         from PySide6.QtCore import Qt as QtCore
@@ -1147,7 +1161,28 @@ class DetailPlot(QWidget):
         # Connect drag signals
         self.start_line.sigPositionChanged.connect(self._on_boundary_moved)
         self.end_line.sigPositionChanged.connect(self._on_boundary_moved)
-    
+
+    def _on_plot_style_changed(self, *_args):
+        """Handle detail plot style changes."""
+        self.plot_style = self.plot_style_combo.currentData()
+        self._apply_plot_style()
+
+    def _apply_plot_style(self):
+        """Apply current line/scatter rendering to the detail data curve."""
+        if self.plot_style == "scatter":
+            self.data_curve.setPen(None)
+            self.data_curve.setSymbol('o')
+            self.data_curve.setSymbolSize(5)
+            self.data_curve.setSymbolBrush('k')
+            self.data_curve.setSymbolPen(None)
+            return
+
+        self.data_curve.setPen(pg.mkPen('k', width=2))
+        self.data_curve.setSymbol('o')
+        self.data_curve.setSymbolSize(3)
+        self.data_curve.setSymbolBrush('k')
+        self.data_curve.setSymbolPen(None)
+
     def set_data(self, timestamp: np.ndarray, mass: np.ndarray):
         """Set full dataset.
         
