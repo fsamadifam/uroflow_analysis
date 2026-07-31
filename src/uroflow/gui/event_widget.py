@@ -74,6 +74,11 @@ class EventWidget(QWidget):
         filter_layout.addWidget(self.search_box)
         
         layout.addLayout(filter_layout)
+
+        # Session identification shown immediately above the event table.
+        self.session_info_label = QLabel("Cage: —   |   Rat: —   |   Test Date: —")
+        self.session_info_label.setStyleSheet("font-weight: bold; padding: 2px 0;")
+        layout.addWidget(self.session_info_label)
         
         # Table view
         self.table_view = QTableView()
@@ -154,6 +159,16 @@ class EventWidget(QWidget):
         self.table_model.set_events(events, metadata)
         self.table_view.resizeColumnsToContents()
         self._update_count_label()
+
+    def set_session_config(self, session_config: Optional[dict]):
+        """Update the session identification line above the event table."""
+        self.session_config = session_config or {}
+        cage_id = self.session_config.get("cage_id", "—")
+        rat_id = self.session_config.get("rat_id", "—")
+        test_date = self.session_config.get("start_date", "—")
+        self.session_info_label.setText(
+            f"Cage: {cage_id}   |   Rat: {rat_id}   |   Test Date: {test_date}"
+        )
     
     def select_event(self, event_id: str):
         """Select event in table by ID.

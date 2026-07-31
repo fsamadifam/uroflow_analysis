@@ -578,6 +578,7 @@ class MainWindow(QMainWindow):
             # Update event table
             print("  Updating event table...")
             self.event_widget.set_events(self.project.events, self.metadata)
+            self.event_widget.set_session_config(self.project.session_config_snapshot)
             
             # Update event gallery
             print("  Updating event gallery...")
@@ -1796,6 +1797,7 @@ class MainWindow(QMainWindow):
         
         # Update event table
         self.event_widget.set_events(self.project.events, self.metadata)
+        self.event_widget.set_session_config(self.project.session_config_snapshot)
         
         # Update gallery
         try:
