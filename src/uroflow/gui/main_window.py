@@ -174,6 +174,7 @@ class MainWindow(QMainWindow):
         self.event_widget.event_double_clicked.connect(self._on_event_double_clicked)
         self.event_widget.next_event_requested.connect(self._on_next_event)
         self.event_widget.prev_event_requested.connect(self._on_prev_event)
+        self.event_widget.delete_event_requested.connect(self._delete_event)
         right_panel.addTab(self.event_widget, "Events")
         
         # Event gallery tab
@@ -1892,7 +1893,11 @@ class MainWindow(QMainWindow):
     
     def _delete_current_event(self):
         """Delete the currently selected event."""
-        if not self.project or not self.current_event_id:
+        self._delete_event(self.current_event_id)
+
+    def _delete_event(self, event_id: str):
+        """Delete a specific event requested by an event-table action."""
+        if not self.project or not event_id:
             return
         
         # Confirm deletion
@@ -1907,11 +1912,11 @@ class MainWindow(QMainWindow):
         if reply != QMessageBox.Yes:
             return
         
-        command = DeleteEventCommand(self.project, self.current_event_id)
+        command = DeleteEventCommand(self.project, event_id)
         self.undo_stack.push(command)
         
         # Update UI
-        self.event_widget.remove_event(self.current_event_id)
+        self.event_widget.remove_event(event_id)
         self.overview_plot.set_data(self.timestamp, self.mass, self.segments, self.gaps, self.project.events)
         self.detail_plot.clear()
         self._update_undo_redo_actions()

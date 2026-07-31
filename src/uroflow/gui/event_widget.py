@@ -22,6 +22,7 @@ class EventWidget(QWidget):
     event_double_clicked = Signal(str)  # event_id - for centering view
     next_event_requested = Signal()
     prev_event_requested = Signal()
+    delete_event_requested = Signal(str)  # event_id
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -81,6 +82,7 @@ class EventWidget(QWidget):
         self.table_view.setSelectionBehavior(QTableView.SelectRows)
         self.table_view.setSelectionMode(QTableView.SingleSelection)
         self.table_view.setAlternatingRowColors(True)
+        self.table_view.setContextMenuPolicy(Qt.CustomContextMenu)
         
         # Sort by start time (column 1) by default
         self.table_view.sortByColumn(EventTableModel.COL_START_TIME, Qt.AscendingOrder)
@@ -100,6 +102,9 @@ class EventWidget(QWidget):
         
         # Connect double click - centers plot view on event
         self.table_view.doubleClicked.connect(self._on_cell_double_clicked)
+        self.table_view.customContextMenuRequested.connect(
+            self._on_table_context_menu_requested
+        )
         
         layout.addWidget(self.table_view)
         
@@ -113,6 +118,11 @@ class EventWidget(QWidget):
         self.next_button = QPushButton("Next →")
         self.next_button.clicked.connect(self.next_event_requested.emit)
         nav_layout.addWidget(self.next_button)
+
+        self.delete_button = QPushButton("Delete")
+        self.delete_button.setToolTip("Delete the selected event")
+        self.delete_button.clicked.connect(self._on_delete_button_clicked)
+        nav_layout.addWidget(self.delete_button)
         
         nav_layout.addSpacing(20)
         
@@ -298,6 +308,32 @@ class EventWidget(QWidget):
             print(f"ERROR in _on_cell_double_clicked: {e}")
             import traceback
             traceback.print_exc()
+
+    def _on_delete_button_clicked(self):
+        """Request deletion of the currently selected event."""
+        event_id = self.get_selected_event_id()
+        if event_id:
+            self.delete_event_requested.emit(event_id)
+
+    def _on_table_context_menu_requested(self, position):
+        """Show a delete action for the event row under the cursor."""
+        index = self.table_view.indexAt(position)
+        if not index.isValid():
+            return
+
+        self.table_view.selectRow(index.row())
+        source_index = self.proxy_model.mapToSource(index)
+        event = self.table_model.get_event_at_row(source_index.row())
+        if not event:
+            return
+
+        menu = QMenu(self)
+        delete_action = menu.addAction("Delete Event")
+        chosen_action = menu.exec(
+            self.table_view.viewport().mapToGlobal(position)
+        )
+        if chosen_action == delete_action:
+            self.delete_event_requested.emit(event.event_id)
     
     
     def _on_filter_changed(self):
