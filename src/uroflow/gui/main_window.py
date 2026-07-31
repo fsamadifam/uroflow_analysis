@@ -14,7 +14,9 @@ import time
 import numpy as np
 
 from uroflow.core.types import Project, DetectionParams
-from uroflow.core.project_io import load_project, save_project, autosave_project
+from uroflow.core.project_io import (
+    load_project, save_project, autosave_project, standard_session_name,
+)
 from uroflow.core.video import find_sibling_videos_folder, get_video_files
 from uroflow.io.load_csv import load_uroflow_csv, find_acquisition_event_windows
 from uroflow.io.load_config import load_session_config
@@ -821,10 +823,12 @@ class MainWindow(QMainWindow):
             return
 
         csv_p = Path(self.project.input_csv_path)
-        if csv_p.name and csv_p.stem:
-            default_path = str(csv_p.parent / f"{csv_p.stem}_project.json")
-        else:
-            default_path = "project.json"
+        session_name = standard_session_name(
+            self.project.input_csv_path,
+            self.project.session_config_snapshot,
+        )
+        project_name = f"project_{session_name}.json" if session_name else "project.json"
+        default_path = str(csv_p.parent / project_name)
 
         project_path, _ = QFileDialog.getSaveFileName(
             self, "Save Project As", default_path, "Project Files (*.json)"
@@ -841,8 +845,14 @@ class MainWindow(QMainWindow):
         
         from uroflow.core.project_io import export_events_csv
         
+        session_name = standard_session_name(
+            self.project.input_csv_path,
+            self.project.session_config_snapshot,
+        )
+        events_name = f"events_table_{session_name}.csv" if session_name else "events_table.csv"
+        default_path = str(Path(self.project.input_csv_path).parent / events_name)
         csv_path, _ = QFileDialog.getSaveFileName(
-            self, "Export Events", "events_labeled.csv", "CSV Files (*.csv)"
+            self, "Export Events", default_path, "CSV Files (*.csv)"
         )
         
         if csv_path:

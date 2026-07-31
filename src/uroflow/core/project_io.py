@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 from pathlib import Path
 from typing import Optional
 from datetime import datetime
@@ -16,6 +17,38 @@ from uroflow.core.types import (
     SpatialCoordinates,
     get_human_friendly_id,
 )
+
+
+def standard_session_name(input_csv_path: str, session_config: Optional[dict] = None) -> str:
+    """Return the standard filename stem for a recording session.
+
+    The preferred source is the recording CSV name, for example
+    ``uroflow_2026_06_25_10_08_08_cage227397_rat1.csv``.  If that name does
+    not contain the standard suffix, session metadata is used instead.
+    """
+    stem = Path(input_csv_path).stem
+    match = re.search(
+        r"(?P<session>\d{4}_\d{2}_\d{2}_\d{2}_\d{2}_\d{2}_cage[^_]+_rat[^_]+)$",
+        stem,
+        re.IGNORECASE,
+    )
+    if match:
+        return match.group("session")
+
+    config = session_config or {}
+    date = str(config.get("start_date", "")).replace("-", "_")
+    start_time = str(config.get("start_time", "")).replace(":", "_")
+    if date and start_time and config.get("cage_id") is not None and config.get("rat_id") is not None:
+        return f"{date}_{start_time}_cage{_safe_filename_component(config['cage_id'])}_rat{_safe_filename_component(config['rat_id'])}"
+
+    # No session identifiers available: callers should use their plain
+    # artifact name (for example, ``events_table.csv``).
+    return ""
+
+
+def _safe_filename_component(value) -> str:
+    """Make a metadata value safe to use in a filename."""
+    return re.sub(r"[^A-Za-z0-9.-]+", "", str(value))
 
 
 class NumpyEncoder(json.JSONEncoder):
