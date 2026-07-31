@@ -175,6 +175,9 @@ class MainWindow(QMainWindow):
         self.event_widget.next_event_requested.connect(self._on_next_event)
         self.event_widget.prev_event_requested.connect(self._on_prev_event)
         self.event_widget.delete_event_requested.connect(self._delete_event)
+        self.event_widget.mark_event_location_requested.connect(
+            self._open_annotation_dialog
+        )
         right_panel.addTab(self.event_widget, "Events")
         
         # Event gallery tab
@@ -270,7 +273,7 @@ class MainWindow(QMainWindow):
         spatial_menu.addAction(calibrate_action)
         
         annotate_action = QAction("&Mark Event Location...", self)
-        annotate_action.triggered.connect(self._open_annotation_dialog)
+        annotate_action.triggered.connect(lambda: self._open_annotation_dialog())
         spatial_menu.addAction(annotate_action)
         
         spatial_menu.addSeparator()
@@ -990,8 +993,8 @@ class MainWindow(QMainWindow):
         config_path = self.project.session_config_path or ""
         return load_calibration(config_path) if config_path else None
     
-    def _open_annotation_dialog(self):
-        """Open event location annotation dialog for the selected event."""
+    def _open_annotation_dialog(self, event_id: Optional[str] = None):
+        """Open event location annotation dialog for an event."""
         from uroflow.spatial.gui.annotation_dialog import EventAnnotationDialog
         from uroflow.core.types import SpatialCoordinates
         from uroflow.core.video import find_matching_videos, get_video_files
@@ -1000,8 +1003,9 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "No Project", "Please load a project first.")
             return
         
-        # Get selected event
-        event_id = self.current_event_id
+        # Use the explicitly requested row when available (e.g. context menu),
+        # otherwise fall back to the current application selection.
+        event_id = event_id or self.current_event_id
         if not event_id:
             QMessageBox.information(self, "No Selection", "Please select an event first.")
             return
@@ -1121,6 +1125,7 @@ class MainWindow(QMainWindow):
                     f"Location marked for event {event_id[:8]}: "
                     f"({real_x:.1f}, {real_y:.1f}) cm"
                 )
+                self.event_widget.update_event(event_id)
     
     def _open_spatial_analysis(self):
         """Open spatial analysis panel/dialog."""

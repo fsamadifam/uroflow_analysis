@@ -23,6 +23,7 @@ class EventWidget(QWidget):
     next_event_requested = Signal()
     prev_event_requested = Signal()
     delete_event_requested = Signal(str)  # event_id
+    mark_event_location_requested = Signal(str)  # event_id
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -137,6 +138,14 @@ class EventWidget(QWidget):
         self.video_button.clicked.connect(self._on_open_video_clicked)
         self.video_button.setEnabled(False)  # Disabled until video folder is set
         nav_layout.addWidget(self.video_button)
+
+        self.mark_location_button = QPushButton("Mark Event Location")
+        self.mark_location_button.setToolTip(
+            "Mark the location for the selected event using its video"
+        )
+        self.mark_location_button.clicked.connect(self._on_mark_location_clicked)
+        self.mark_location_button.setEnabled(False)  # Disabled until video folder is set
+        nav_layout.addWidget(self.mark_location_button)
         
         nav_layout.addStretch()
         
@@ -343,11 +352,14 @@ class EventWidget(QWidget):
             return
 
         menu = QMenu(self)
+        mark_location_action = menu.addAction("Mark Event Location")
         delete_action = menu.addAction("Delete Event")
         chosen_action = menu.exec(
             self.table_view.viewport().mapToGlobal(position)
         )
-        if chosen_action == delete_action:
+        if chosen_action == mark_location_action:
+            self.mark_event_location_requested.emit(event.event_id)
+        elif chosen_action == delete_action:
             self.delete_event_requested.emit(event.event_id)
     
     
@@ -428,10 +440,12 @@ class EventWidget(QWidget):
         if folder_path:
             self._video_files = get_video_files(folder_path)
             self.video_button.setEnabled(True)
+            self.mark_location_button.setEnabled(True)
             self.video_button.setToolTip(f"Open video ({len(self._video_files)} files available)")
         else:
             self._video_files = []
             self.video_button.setEnabled(False)
+            self.mark_location_button.setEnabled(False)
             self.video_button.setToolTip("No video folder set")
     
     def _on_open_video_clicked(self):
@@ -452,6 +466,14 @@ class EventWidget(QWidget):
             return
         
         self._open_video_for_event(event)
+
+    def _on_mark_location_clicked(self):
+        """Request location annotation for the selected event."""
+        event_id = self.get_selected_event_id()
+        if event_id:
+            self.mark_event_location_requested.emit(event_id)
+        else:
+            QMessageBox.information(self, "No Selection", "Please select an event first.")
     
     def _open_video_for_event(self, event):
         """Find and open video for the given event.
