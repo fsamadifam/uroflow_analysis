@@ -173,7 +173,7 @@ class MainWindow(QMainWindow):
         # Event table tab
         self.event_widget = EventWidget()
         self.event_widget.event_selected.connect(self._on_event_selected)
-        self.event_widget.event_double_clicked.connect(self._on_event_double_clicked)
+        self.event_widget.center_plot_requested.connect(self._on_center_plot_requested)
         self.event_widget.next_event_requested.connect(self._on_next_event)
         self.event_widget.prev_event_requested.connect(self._on_prev_event)
         self.event_widget.delete_event_requested.connect(self._delete_event)
@@ -1321,11 +1321,11 @@ class MainWindow(QMainWindow):
             self._selecting_event = False
             # Don't process events here - let Qt handle it naturally
     
-    def _on_event_double_clicked(self, event_id: str):
-        """Handle double-click on event in table - select and center view.
+    def _on_center_plot_requested(self, event_id: str):
+        """Center the overview plot on the requested event.
         
         Args:
-            event_id: Event ID that was double-clicked
+            event_id: Event ID to center in the overview plot
         """
         if not self.project:
             return

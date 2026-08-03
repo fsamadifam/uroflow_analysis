@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (
     QMessageBox, QMenu
 )
 from PySide6.QtCore import Signal, Qt
+from PySide6.QtGui import QKeySequence
 from typing import Optional
 
 from uroflow.gui.table_model import EventTableModel, EventFilterProxyModel
@@ -19,7 +20,7 @@ class EventWidget(QWidget):
     """Widget for event table with filtering and navigation."""
     
     event_selected = Signal(str)  # event_id
-    event_double_clicked = Signal(str)  # event_id - for centering view
+    center_plot_requested = Signal(str)  # event_id
     next_event_requested = Signal()
     prev_event_requested = Signal()
     delete_event_requested = Signal(str)  # event_id
@@ -103,15 +104,16 @@ class EventWidget(QWidget):
         label_col = EventTableModel.COL_LABEL
         self.table_view.setItemDelegateForColumn(label_col, self.label_delegate)
         
-        # Allow editing with various triggers
+        # Label editing is opened explicitly on a single click below.  Excluding
+        # DoubleClicked lets that gesture consistently open the event video.
         self.table_view.setEditTriggers(
-            QTableView.DoubleClicked | QTableView.EditKeyPressed | QTableView.AnyKeyPressed
+            QTableView.EditKeyPressed | QTableView.AnyKeyPressed
         )
         
         # Connect single click - will open editor on label column
         self.table_view.clicked.connect(self._on_cell_clicked)
         
-        # Connect double click - centers plot view on event
+        # Double click opens the selected event's video.
         self.table_view.doubleClicked.connect(self._on_cell_double_clicked)
         self.table_view.customContextMenuRequested.connect(
             self._on_table_context_menu_requested
@@ -134,6 +136,14 @@ class EventWidget(QWidget):
         self.delete_button.setToolTip("Delete the selected event")
         self.delete_button.clicked.connect(self._on_delete_button_clicked)
         nav_layout.addWidget(self.delete_button)
+
+        self.center_plot_button = QPushButton("Center Plot")
+        self.center_plot_button.setToolTip(
+            "Center the overview plot on the selected event (Ctrl+Shift+C)"
+        )
+        self.center_plot_button.setShortcut(QKeySequence("Ctrl+Shift+C"))
+        self.center_plot_button.clicked.connect(self._on_center_plot_clicked)
+        nav_layout.addWidget(self.center_plot_button)
         
         nav_layout.addSpacing(20)
         
@@ -314,7 +324,7 @@ class EventWidget(QWidget):
             traceback.print_exc()
     
     def _on_cell_double_clicked(self, index):
-        """Handle double click on cell - select event and center plot view."""
+        """Handle double click on a cell by opening that event's video."""
         try:
             if not index.isValid():
                 return
@@ -326,12 +336,9 @@ class EventWidget(QWidget):
             
             event = self.table_model.get_event_at_row(source_index.row())
             if event:
-                print(f"Table row double-clicked: {event.event_id[:8]} - centering view")
-                self.event_double_clicked.emit(event.event_id)
-            
-            # Don't open editor on double-click (except for label column, handled above)
-            # The doubleClicked signal is processed after clicked, so label editing
-            # will be handled by the edit trigger we set up
+                print(f"Table row double-clicked: {event.event_id[:8]} - opening video")
+                self.event_selected.emit(event.event_id)
+                self._open_video_for_event(event)
                 
         except Exception as e:
             print(f"ERROR in _on_cell_double_clicked: {e}")
@@ -343,6 +350,14 @@ class EventWidget(QWidget):
         event_id = self.get_selected_event_id()
         if event_id:
             self.delete_event_requested.emit(event_id)
+
+    def _on_center_plot_clicked(self):
+        """Request centering the overview plot on the selected event."""
+        event_id = self.get_selected_event_id()
+        if event_id:
+            self.center_plot_requested.emit(event_id)
+        else:
+            QMessageBox.information(self, "No Selection", "Please select an event first.")
 
     def _on_table_context_menu_requested(self, position):
         """Show a delete action for the event row under the cursor."""
@@ -357,12 +372,15 @@ class EventWidget(QWidget):
             return
 
         menu = QMenu(self)
+        open_video_action = menu.addAction("Open Event Video")
         mark_location_action = menu.addAction("Mark Event Location")
         delete_action = menu.addAction("Delete Event")
         chosen_action = menu.exec(
             self.table_view.viewport().mapToGlobal(position)
         )
-        if chosen_action == mark_location_action:
+        if chosen_action == open_video_action:
+            self._open_video_for_event(event)
+        elif chosen_action == mark_location_action:
             self.mark_event_location_requested.emit(event.event_id)
         elif chosen_action == delete_action:
             self.delete_event_requested.emit(event.event_id)
