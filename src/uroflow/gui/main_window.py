@@ -160,6 +160,9 @@ class MainWindow(QMainWindow):
         self.overview_plot.calibrate_camera_requested.connect(
             self._open_calibration_dialog
         )
+        self.overview_plot.spatial_analysis_requested.connect(
+            self._open_spatial_analysis
+        )
         left_layout.addWidget(self.overview_plot, stretch=2)
         
         # Detail plot
@@ -267,22 +270,6 @@ class MainWindow(QMainWindow):
         edit_menu.addAction(self.redo_action)
         
         self._update_undo_redo_actions()
-        
-        # View menu
-        view_menu = menubar.addMenu("&View")
-        
-        # Spatial menu
-        spatial_menu = menubar.addMenu("&Spatial")
-        
-        annotate_action = QAction("&Mark Event Location...", self)
-        annotate_action.triggered.connect(lambda: self._open_annotation_dialog())
-        spatial_menu.addAction(annotate_action)
-        
-        spatial_menu.addSeparator()
-        
-        spatial_analysis_action = QAction("Spatial &Analysis...", self)
-        spatial_analysis_action.triggered.connect(self._open_spatial_analysis)
-        spatial_menu.addAction(spatial_analysis_action)
         
         # Help menu
         help_menu = menubar.addMenu("&Help")
@@ -1092,7 +1079,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(
                 self, "No Calibration",
                 "No spatial calibration found.\n\n"
-                "Please calibrate the camera first via Spatial -> Calibrate Camera."
+                "Please calibrate the camera first using the Calibrate Camera button."
             )
             return
         
@@ -1216,7 +1203,7 @@ class MainWindow(QMainWindow):
             QMessageBox.information(
                 self, "No Spatial Data",
                 "No events have spatial coordinates yet.\n\n"
-                "Use Spatial -> Mark Event Location to annotate events."
+                "Use Mark Event Location from the Events table to annotate events."
             )
             return
         
