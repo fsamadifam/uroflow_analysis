@@ -329,13 +329,17 @@ class MainWindow(QMainWindow):
     def load_project(self, project_path: str):
         """Load project from file."""
         try:
+            # Load project
+            project = load_project(project_path)
+            if not self._resolve_missing_project_files(project, project_path):
+                return
+
             # Show progress dialog
             progress = QProgressDialog("Loading project...", None, 0, 4, self)
             progress.setWindowModality(Qt.WindowModal)
             progress.setValue(0)
-            
-            # Load project
-            self.project = load_project(project_path)
+
+            self.project = project
             self.project_path = project_path
             progress.setValue(1)
             
@@ -374,6 +378,63 @@ class MainWindow(QMainWindow):
             
         except Exception as e:
             QMessageBox.critical(self, "Error Loading Project", str(e))
+
+    def _resolve_missing_project_files(self, project: Project, project_path: str) -> bool:
+        """Let the user replace saved input paths that are no longer available.
+
+        Moving a project independently of its source files is common.  The
+        project retains its analysis state, while the replacement paths point
+        it at the same CSV and session configuration in their new locations.
+        """
+        csv_is_missing = not Path(project.input_csv_path).is_file()
+        config_is_missing = not Path(project.session_config_path).is_file()
+        if not csv_is_missing and not config_is_missing:
+            return True
+
+        missing_files = []
+        if csv_is_missing:
+            missing_files.append(f"CSV file:\n{project.input_csv_path}")
+        if config_is_missing:
+            missing_files.append(f"Session config file:\n{project.session_config_path}")
+
+        QMessageBox.warning(
+            self,
+            "Project Files Not Found",
+            "The project refers to file(s) that could not be found:\n\n"
+            + "\n\n".join(missing_files)
+            + "\n\nSelect the replacement file(s) to continue loading the project.",
+        )
+
+        project_folder = str(Path(project_path).parent)
+        csv_path = project.input_csv_path
+        config_path = project.session_config_path
+        config_snapshot = project.session_config_snapshot
+
+        if csv_is_missing:
+            csv_path, _ = QFileDialog.getOpenFileName(
+                self, "Locate Project CSV File", project_folder, "CSV Files (*.csv)"
+            )
+            if not csv_path:
+                return False
+
+        if config_is_missing:
+            config_start_folder = str(Path(csv_path).parent) if csv_path else project_folder
+            config_path, _ = QFileDialog.getOpenFileName(
+                self,
+                "Locate Session Config File",
+                config_start_folder,
+                "JSON Files (*.json)",
+            )
+            if not config_path:
+                return False
+            # The selected config is now the project's source of truth.
+            config_snapshot = load_session_config(config_path)
+
+        project.input_csv_path = str(Path(csv_path).absolute())
+        project.session_config_path = str(Path(config_path).absolute())
+        project.session_config_snapshot = config_snapshot
+        project.update_modified()
+        return True
     
     def _prompt_video_folder_for_existing_project(self):
         """Prompt user to select video folder for an existing project without one."""
