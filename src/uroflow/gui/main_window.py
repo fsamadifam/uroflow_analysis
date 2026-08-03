@@ -157,6 +157,9 @@ class MainWindow(QMainWindow):
         self.overview_plot.manual_event_requested.connect(self._on_manual_event_requested)
         self.overview_plot.create_event_confirmed.connect(self._on_manual_event_requested)
         self.overview_plot.detect_events_requested.connect(self._show_detect_events_dialog)
+        self.overview_plot.calibrate_camera_requested.connect(
+            self._open_calibration_dialog
+        )
         left_layout.addWidget(self.overview_plot, stretch=2)
         
         # Detail plot
@@ -270,10 +273,6 @@ class MainWindow(QMainWindow):
         
         # Spatial menu
         spatial_menu = menubar.addMenu("&Spatial")
-        
-        calibrate_action = QAction("&Calibrate Camera...", self)
-        calibrate_action.triggered.connect(self._open_calibration_dialog)
-        spatial_menu.addAction(calibrate_action)
         
         annotate_action = QAction("&Mark Event Location...", self)
         annotate_action.triggered.connect(lambda: self._open_annotation_dialog())

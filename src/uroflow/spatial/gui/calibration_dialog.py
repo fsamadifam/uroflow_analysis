@@ -111,7 +111,10 @@ class CalibrationDialog(QDialog):
     def __init__(self, video_folder: str = "", config_path: str = "", parent=None):
         super().__init__(parent)
         self.setWindowTitle("Spatial Calibration")
-        self.resize(1200, 800)
+        # A wide layout lets a typical 16:9 camera frame fill the point-selection
+        # area instead of leaving a large unused band beneath it.
+        self.setMinimumSize(1200, 700)
+        self.resize(1600, 900)
 
         self._video_folder = video_folder
         self._config_path = config_path
@@ -164,6 +167,7 @@ class CalibrationDialog(QDialog):
         self._scene = QGraphicsScene()
         self._view = ClickableGraphicsView()
         self._view.setScene(self._scene)
+        self._view.setBackgroundBrush(QBrush(Qt.white))
         self._view.point_clicked.connect(self._on_point_clicked)
         self._view.point_right_clicked.connect(self._on_right_click)
         image_layout.addWidget(self._view)
@@ -206,8 +210,10 @@ class CalibrationDialog(QDialog):
         right_layout.addStretch()
         splitter.addWidget(right_widget)
 
-        splitter.setSizes([1000, 250])
-        layout.addWidget(splitter)
+        splitter.setSizes([1330, 250])
+        # Let the image/point-selection area consume all remaining dialog height
+        # instead of leaving unused space below the controls.
+        layout.addWidget(splitter, stretch=1)
 
         # Bottom buttons
         btn_layout = QHBoxLayout()
