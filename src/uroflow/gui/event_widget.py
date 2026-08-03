@@ -24,11 +24,16 @@ class EventWidget(QWidget):
     prev_event_requested = Signal()
     delete_event_requested = Signal(str)  # event_id
     mark_event_location_requested = Signal(str)  # event_id
+    event_label_changed = Signal(str)  # event_id
     
     def __init__(self, parent=None):
         super().__init__(parent)
         
         self.table_model = EventTableModel()
+        self.table_model.label_changed.connect(self.event_label_changed.emit)
+        self.table_model.label_changed.connect(
+            lambda _event_id: self._update_count_label()
+        )
         self.proxy_model = EventFilterProxyModel()
         self.proxy_model.setSourceModel(self.table_model)
         self.metadata = None

@@ -1059,6 +1059,13 @@ class OverviewPlot(QWidget):
 
 class DetailPlot(QWidget):
     """Detail plot showing zoomed view around selected event."""
+
+    _EVENT_TYPE_COLORS = {
+        "urine": "#FFB000",      # Vivid orange/amber
+        "feces": "#5C2E00",      # Brown
+        "bad": "#FF0000",        # Red
+        "": "#808080",           # Unlabeled
+    }
     
     boundary_changed = Signal(str, float, float)  # event_id, new_start_time, new_end_time
     
@@ -1133,7 +1140,19 @@ class DetailPlot(QWidget):
             symbolSize=3,
             symbolBrush='k'
         )
+        self.event_type_item = pg.TextItem(
+            anchor=(0, 0),
+            border=pg.mkPen(0, 0, 0),
+            fill=pg.mkBrush(255, 255, 255, 220),
+        )
+        self.event_type_item.setZValue(20)
+        self.event_type_item.setToolTip("Label assigned to the selected event")
+        self.plot_widget.addItem(self.event_type_item, ignoreBounds=True)
+        self.plot_widget.getViewBox().sigRangeChanged.connect(
+            self._position_event_type_indicator
+        )
         self._apply_plot_style()
+        self._update_event_type_indicator(None)
         
         # Boundary lines (draggable)
         from PySide6.QtCore import Qt as QtCore
@@ -1169,19 +1188,53 @@ class DetailPlot(QWidget):
 
     def _apply_plot_style(self):
         """Apply current line/scatter rendering to the detail data curve."""
+        label = self.current_event.label_user if self.current_event is not None else ""
+        event_color = self._EVENT_TYPE_COLORS.get(label, self._EVENT_TYPE_COLORS[""])
+
         if self.plot_style == "scatter":
             self.data_curve.setPen(None)
             self.data_curve.setSymbol('o')
             self.data_curve.setSymbolSize(5)
-            self.data_curve.setSymbolBrush('k')
-            self.data_curve.setSymbolPen(None)
+            self.data_curve.setSymbolBrush(event_color)
+            self.data_curve.setSymbolPen(event_color)
             return
 
-        self.data_curve.setPen(pg.mkPen('k', width=2))
+        self.data_curve.setPen(pg.mkPen(event_color, width=2))
         self.data_curve.setSymbol('o')
         self.data_curve.setSymbolSize(3)
-        self.data_curve.setSymbolBrush('k')
-        self.data_curve.setSymbolPen(None)
+        self.data_curve.setSymbolBrush(event_color)
+        self.data_curve.setSymbolPen(event_color)
+
+    def _update_event_type_indicator(self, event: Event | None):
+        """Show the selected event's label and use the same color as the trace."""
+        if event is None:
+            display_label = "None"
+            color = self._EVENT_TYPE_COLORS[""]
+        else:
+            label = event.label_user or ""
+            display_label = label.capitalize() if label else "Unlabeled"
+            color = self._EVENT_TYPE_COLORS.get(label, self._EVENT_TYPE_COLORS[""])
+
+        self.event_type_item.setHtml(
+            '<div style="font-size: 14pt; font-weight: 600;">'
+            '<span style="color: #000000;">Event:</span> '
+            f'<span style="color: {color};">{display_label}</span>'
+            '</div>'
+        )
+        self._position_event_type_indicator()
+
+    def _position_event_type_indicator(self, *_args):
+        """Keep the event-type label inside the upper-left plot corner."""
+        x_range, y_range = self.plot_widget.viewRange()
+        x_padding = (x_range[1] - x_range[0]) * 0.02
+        y_padding = (y_range[1] - y_range[0]) * 0.02
+        self.event_type_item.setPos(x_range[0] + x_padding, y_range[1] - y_padding)
+
+    def refresh_event_type(self, event: Event):
+        """Refresh the label and trace color after the selected event is edited."""
+        self.current_event = event
+        self._update_event_type_indicator(event)
+        self._apply_plot_style()
 
     def set_data(self, timestamp: np.ndarray, mass: np.ndarray):
         """Set full dataset.
@@ -1213,6 +1266,8 @@ class DetailPlot(QWidget):
             
             try:
                 self.current_event = event
+                self._update_event_type_indicator(event)
+                self._apply_plot_style()
                 
                 # Calculate window
                 t_start = max(0, event.start_time_s - self.window_padding_s)
@@ -1291,6 +1346,8 @@ class DetailPlot(QWidget):
         self.start_line.hide()
         self.end_line.hide()
         self.current_event = None
+        self._update_event_type_indicator(None)
+        self._apply_plot_style()
     
     def enable_boundary_editing(self, enabled: bool):
         """Enable or disable boundary line dragging.

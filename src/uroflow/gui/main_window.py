@@ -177,6 +177,7 @@ class MainWindow(QMainWindow):
         self.event_widget.next_event_requested.connect(self._on_next_event)
         self.event_widget.prev_event_requested.connect(self._on_prev_event)
         self.event_widget.delete_event_requested.connect(self._delete_event)
+        self.event_widget.event_label_changed.connect(self._on_table_event_label_changed)
         self.event_widget.mark_event_location_requested.connect(
             self._open_annotation_dialog
         )
@@ -1891,6 +1892,10 @@ class MainWindow(QMainWindow):
         
         command = LabelEventCommand(self.project, self.current_event_id, label)
         self.undo_stack.push(command)
+
+        current_event = self.project.get_event_by_id(self.current_event_id)
+        if current_event:
+            self.detail_plot.refresh_event_type(current_event)
         
         # Update UI
         self.event_widget.update_event(self.current_event_id)
@@ -1907,6 +1912,29 @@ class MainWindow(QMainWindow):
         self._update_counts()
         
         self.status_label.setText(f"Labeled event as {label}")
+
+    def _on_table_event_label_changed(self, event_id: str):
+        """Refresh dependent views immediately after an inline table label edit."""
+        if not self.project:
+            return
+
+        event = self.project.get_event_by_id(event_id)
+        if not event:
+            return
+
+        self.project.update_modified()
+        self.overview_plot.set_data(
+            self.timestamp, self.mass, self.segments, self.gaps, self.project.events
+        )
+        self.event_gallery.update_events(self.project.events)
+        self.summary_widget.set_events(self.project.events)
+        self._update_counts()
+
+        if self.current_event_id == event_id:
+            self.detail_plot.refresh_event_type(event)
+            self.info_widget.set_event(event)
+
+        self.status_label.setText(f"Labeled event as {event.label_user or 'unlabeled'}")
     
     def _delete_current_event(self):
         """Delete the currently selected event."""
@@ -1962,6 +1990,9 @@ class MainWindow(QMainWindow):
             # Refresh UI
             self.event_widget.set_events(self.project.events, self.metadata)
             self.overview_plot.set_data(self.timestamp, self.mass, self.segments, self.gaps, self.project.events)
+            current_event = self.project.get_event_by_id(self.current_event_id)
+            if current_event:
+                self.detail_plot.refresh_event_type(current_event)
             self.summary_widget.set_events(self.project.events)
             self._update_undo_redo_actions()
             self._update_counts()
@@ -1974,6 +2005,9 @@ class MainWindow(QMainWindow):
             # Refresh UI
             self.event_widget.set_events(self.project.events, self.metadata)
             self.overview_plot.set_data(self.timestamp, self.mass, self.segments, self.gaps, self.project.events)
+            current_event = self.project.get_event_by_id(self.current_event_id)
+            if current_event:
+                self.detail_plot.refresh_event_type(current_event)
             self.summary_widget.set_events(self.project.events)
             self._update_undo_redo_actions()
             self._update_counts()

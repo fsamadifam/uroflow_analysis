@@ -1,6 +1,6 @@
 """Table model for displaying and managing events."""
 
-from PySide6.QtCore import Qt, QAbstractTableModel, QModelIndex, QSortFilterProxyModel
+from PySide6.QtCore import Qt, QAbstractTableModel, QModelIndex, QSortFilterProxyModel, Signal
 from PySide6.QtGui import QColor
 from typing import List, Optional
 
@@ -9,6 +9,8 @@ from uroflow.core.types import Event, get_human_friendly_id
 
 class EventTableModel(QAbstractTableModel):
     """Table model for event list."""
+
+    label_changed = Signal(str)  # event_id
     
     # Column indices
     COL_ID = 0
@@ -216,6 +218,7 @@ class EventTableModel(QAbstractTableModel):
                 event.label_user = value.lower()
                 event.update_modified()
                 self.dataChanged.emit(index, index)
+                self.label_changed.emit(event.event_id)
                 return True
         
         elif col == self.COL_LOCKED:
