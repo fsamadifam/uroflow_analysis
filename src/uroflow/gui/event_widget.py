@@ -26,6 +26,7 @@ class EventWidget(QWidget):
     delete_event_requested = Signal(str)  # event_id
     mark_event_location_requested = Signal(str)  # event_id
     event_label_changed = Signal(str)  # event_id
+    export_events_requested = Signal()
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -73,6 +74,11 @@ class EventWidget(QWidget):
         
         filter_layout.addStretch()
         
+        self.export_events_button = QPushButton("Export Events CSV")
+        self.export_events_button.setToolTip("Export all events to a CSV file")
+        self.export_events_button.clicked.connect(self.export_events_requested.emit)
+        filter_layout.addWidget(self.export_events_button)
+
         # Search box
         filter_layout.addWidget(QLabel("Search:"))
         self.search_box = QLineEdit()

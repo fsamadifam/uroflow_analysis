@@ -184,6 +184,7 @@ class MainWindow(QMainWindow):
         self.event_widget.prev_event_requested.connect(self._on_prev_event)
         self.event_widget.delete_event_requested.connect(self._delete_event)
         self.event_widget.event_label_changed.connect(self._on_table_event_label_changed)
+        self.event_widget.export_events_requested.connect(self.export_events_dialog)
         self.event_widget.mark_event_location_requested.connect(
             self._open_annotation_dialog
         )
