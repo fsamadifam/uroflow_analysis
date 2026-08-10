@@ -2,7 +2,10 @@
 
 import numpy as np
 import pyqtgraph as pg
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QScrollBar, QComboBox
+from PySide6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QScrollBar,
+    QComboBox, QCheckBox,
+)
 from PySide6.QtCore import Signal, Qt
 from PySide6.QtGui import QColor
 
@@ -28,6 +31,7 @@ class OverviewPlot(QWidget):
         self.segments = []
         self.gaps = []
         self.events = []
+        self.show_event_markers = True
         
         # For manual event creation
         self.drag_start_pos = None
@@ -169,8 +173,16 @@ class OverviewPlot(QWidget):
             self.spatial_analysis_requested.emit
         )
         toolbar.addWidget(self.spatial_analysis_btn)
-        
+
         toolbar.addStretch()
+
+        self.show_event_markers_check = QCheckBox("Show event markers")
+        self.show_event_markers_check.setChecked(self.show_event_markers)
+        self.show_event_markers_check.setToolTip(
+            "Show or hide the colored markers for detected and manual events"
+        )
+        self.show_event_markers_check.toggled.connect(self._set_event_markers_visible)
+        toolbar.addWidget(self.show_event_markers_check)
         
         layout.addLayout(toolbar)
         
@@ -443,7 +455,20 @@ class OverviewPlot(QWidget):
             region.event_id = event.event_id
             
             self.plot_widget.addItem(region)
+            region.setVisible(self.show_event_markers)
             self.event_items.append(region)
+
+    def _set_event_markers_visible(self, visible: bool):
+        """Show or hide event markers in the overview plot."""
+        self.show_event_markers = visible
+
+        for region in self.event_items:
+            region.setVisible(visible)
+
+        if self.selection_arrow is not None:
+            self.selection_arrow.setVisible(visible)
+
+        self.plot_widget.update()
     
     def _get_event_color(self, event: Event) -> tuple:
         """Get color for event based on label and source.
@@ -689,7 +714,7 @@ class OverviewPlot(QWidget):
                     region.setZValue(10)
             
             # Add arrow indicator above selected event
-            if selected_event is not None:
+            if selected_event is not None and self.show_event_markers:
                 center_time = (selected_event.start_time_s + selected_event.end_time_s) / 2
                 
                 # Create arrow using text annotation
