@@ -80,7 +80,10 @@ events CSV without opening the GUI:
 uroflow-figures path/to/project.json --output path/to/figures
 ```
 
-The command creates PNG and SVG versions of the four standard figures at 300 DPI.
+The command creates PNG and SVG versions of the available figures at 300 DPI.
+A saved project with an accessible raw uroflow CSV produces all six figures;
+an events CSV produces the five event-level figures because it does not contain
+the raw signal needed for the raw trace figure.
 
 ## Input data
 
@@ -103,14 +106,14 @@ The file must contain valid JSON. The commonly used metadata fields are `cage_id
 - **Project JSON** preserves source-file paths, detection settings, events, labels, edits, video-folder selection, and spatial calibration. Keep the source CSV and config with the project when moving an analysis; the application will prompt for replacements if their saved paths cannot be found.
 - **Events CSV** contains event timing, labels, source, review flags, computed features, spatial coordinates, and calibration metadata where available.
 - **Gallery PNG** is available from the **Gallery** tab.
-- **Analysis Figures** previews the four standard figures and saves the selected
-  plot as PNG or SVG. **Generate Publication Figures** exports the complete set
-  in both formats after locations have been annotated.
+- **Analysis Figures** previews the spatial/count, radial-distance,
+  mass/duration, chronology, cumulative-output, and raw-trace figures. The
+  selected plot can be saved as PNG or SVG. **Generate Publication Figures**
+  exports the complete set in both formats after locations have been annotated.
 
 Resizing the **Analysis Figures** window changes only the on-screen preview.
-Saved figures are rebuilt at the original fixed canvas sizes. At 300 DPI,
-Figure 1 is 3900 × 1800 pixels, Figures 2–3 are 3900 × 1500 pixels, and
-Figure 4 is 2700 × 1500 pixels.
+Saved figures are rebuilt at their fixed publication canvas sizes and do not
+inherit the resized on-screen preview dimensions.
 
 New projects are not autosaved until they have been saved once. After a project path exists, the application autosaves approximately every five minutes and again when it closes.
 

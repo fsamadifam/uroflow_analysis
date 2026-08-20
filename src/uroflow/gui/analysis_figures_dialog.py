@@ -26,15 +26,28 @@ from uroflow.reporting.figures import (
 
 
 class AnalysisFiguresDialog(QDialog):
-    """Show the standard analysis figures and export them together."""
+    """Show all available analysis figures and export them together."""
 
-    def __init__(self, project, default_output_dir: str | Path, parent=None):
+    def __init__(
+        self,
+        project,
+        default_output_dir: str | Path,
+        parent=None,
+        timestamp=None,
+        mass=None,
+    ):
         super().__init__(parent)
         self.setWindowTitle("Analysis Figures")
         self.resize(1100, 760)
         self._default_output_dir = Path(default_output_dir)
         self._data = project_to_dataframe(project)
-        self._figures = build_publication_figures(self._data)
+        self._timestamp = timestamp
+        self._mass = mass
+        self._figures = build_publication_figures(
+            self._data,
+            timestamp=self._timestamp,
+            mass=self._mass,
+        )
 
         layout = QVBoxLayout(self)
         self._tabs = QTabWidget()
@@ -89,7 +102,11 @@ class AnalysisFiguresDialog(QDialog):
         path = Path(output_path).with_suffix(f".{file_format}")
         export_figures = []
         try:
-            export_figures = build_publication_figures(self._data)
+            export_figures = build_publication_figures(
+                self._data,
+                timestamp=self._timestamp,
+                mass=self._mass,
+            )
             figure = export_figures[current_index][2]
             figure.savefig(path, dpi=300)
             self._default_output_dir = path.parent
@@ -110,7 +127,12 @@ class AnalysisFiguresDialog(QDialog):
             return
 
         try:
-            paths = generate_publication_figures(self._data, output_dir)
+            paths = generate_publication_figures(
+                self._data,
+                output_dir,
+                timestamp=self._timestamp,
+                mass=self._mass,
+            )
             self._default_output_dir = Path(output_dir)
             QMessageBox.information(
                 self,

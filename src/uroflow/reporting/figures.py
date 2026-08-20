@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 
 
 LABEL_ORDER = ("urine", "feces")
+RAW_TRACE_MAX_POINTS = 20_000
 COLORS = {
     "total": "#555555",
     "feces": "#4A1E05",
@@ -43,7 +44,12 @@ def project_to_dataframe(project: "Project") -> pd.DataFrame:
         features = event.features
         coords = event.spatial_coords
         rows.append({
+            "event_id": event.event_id,
+            "start_idx": event.start_idx,
+            "end_idx": event.end_idx,
             "start_time_s": event.start_time_s,
+            "end_time_s": event.end_time_s,
+            "wall_clock_time": event.wall_clock_time,
             "duration_s": event.duration_s(),
             "delta_mass_g": features.delta_mass_g if features else np.nan,
             "peak_slope_g_per_s": (
@@ -52,6 +58,10 @@ def project_to_dataframe(project: "Project") -> pd.DataFrame:
             "mean_slope_g_per_s": (
                 features.mean_slope_g_per_s if features else np.nan
             ),
+            "oscillation_score": (
+                features.oscillation_score if features else np.nan
+            ),
+            "crosses_gap": features.crosses_gap if features else np.nan,
             "label_user": event.label_user,
             "real_x_cm": coords.real_x_cm if coords else np.nan,
             "real_y_cm": coords.real_y_cm if coords else np.nan,
@@ -75,10 +85,14 @@ def prepare_figure_data(data: pd.DataFrame) -> pd.DataFrame:
 
     numeric_columns = [
         "start_time_s",
+        "end_time_s",
+        "start_idx",
+        "end_idx",
         "duration_s",
         "delta_mass_g",
         "peak_slope_g_per_s",
         "mean_slope_g_per_s",
+        "oscillation_score",
         "real_x_cm",
         "real_y_cm",
         "radius_cm",
@@ -354,21 +368,159 @@ def make_chronology_figure(df: pd.DataFrame) -> Figure:
         return fig
 
 
+def _validate_raw_trace(
+    timestamp: np.ndarray | None,
+    mass: np.ndarray | None,
+) -> tuple[np.ndarray, np.ndarray] | None:
+    """Validate and normalize optional raw time-series arrays."""
+    if timestamp is None and mass is None:
+        return None
+    if timestamp is None or mass is None:
+        raise ValueError("Both timestamp and mass are required for raw-trace figures.")
+
+    time_values = np.asarray(timestamp, dtype=float)
+    mass_values = np.asarray(mass, dtype=float)
+    if time_values.ndim != 1 or mass_values.ndim != 1:
+        raise ValueError("Raw timestamp and mass data must be one-dimensional.")
+    if len(time_values) != len(mass_values) or len(time_values) < 2:
+        raise ValueError("Raw timestamp and mass arrays must have equal nonzero length.")
+    if not np.all(np.isfinite(time_values)):
+        raise ValueError("Raw timestamps must be finite.")
+    if np.any(np.diff(time_values) < 0):
+        raise ValueError("Raw timestamps must be sorted in ascending order.")
+    return time_values, mass_values
+
+
+def _session_end_hours(
+    df: pd.DataFrame,
+    timestamp: np.ndarray | None = None,
+) -> float:
+    event_end = pd.to_numeric(
+        df.get("end_time_s", df["start_time_s"] + df["duration_s"]),
+        errors="coerce",
+    ).max()
+    candidates = [float(event_end) / 3600.0] if np.isfinite(event_end) else []
+    if timestamp is not None and len(timestamp):
+        candidates.append(float(timestamp[-1]) / 3600.0)
+    maximum = max(candidates, default=1.0)
+    return max(1.0, float(np.ceil(maximum)))
+
+
+def make_cumulative_output_figure(
+    df: pd.DataFrame,
+    timestamp: np.ndarray | None = None,
+) -> Figure:
+    """Plot cumulative deposited mass and event count over the session."""
+    plot_data = df.dropna(subset=["start_time_hours"]).sort_values(
+        "start_time_hours"
+    )
+    if plot_data.empty:
+        raise ValueError("No event times are available for cumulative analysis.")
+    session_end_h = _session_end_hours(plot_data, timestamp)
+
+    with rc_context(PLOT_STYLE):
+        fig = Figure(figsize=(13, 5))
+        ax_mass, ax_count = fig.subplots(1, 2)
+        for label in _available_order(plot_data):
+            group = plot_data[plot_data["label_user"] == label].sort_values(
+                "start_time_hours"
+            )
+            times = group["start_time_hours"].to_numpy(dtype=float)
+
+            masses = group["delta_mass_g"].fillna(0).to_numpy(dtype=float)
+            cumulative_mass = np.cumsum(masses)
+            mass_x = np.r_[0.0, times, session_end_h]
+            mass_y = np.r_[0.0, cumulative_mass, cumulative_mass[-1]]
+            ax_mass.step(
+                mass_x, mass_y, where="post", color=COLORS[label],
+                linewidth=2.5,
+                label=f"{label.capitalize()} ({cumulative_mass[-1]:.2f} g)",
+            )
+
+            cumulative_count = np.arange(1, len(group) + 1)
+            count_x = np.r_[0.0, times, session_end_h]
+            count_y = np.r_[0, cumulative_count, cumulative_count[-1]]
+            ax_count.step(
+                count_x, count_y, where="post", color=COLORS[label],
+                linewidth=2.5,
+                label=f"{label.capitalize()} (n={len(group)})",
+            )
+
+        for ax in (ax_mass, ax_count):
+            ax.set_xlim(0, session_end_h)
+            ax.set_xlabel("Experiment Elapsed Time (Hours)")
+            ax.legend(loc="upper left", frameon=True)
+        ax_mass.set_ylim(bottom=0)
+        ax_mass.set_ylabel("Cumulative Mass Change (g)")
+        ax_mass.set_title("Cumulative Deposited Mass", fontweight="bold")
+        ax_count.set_ylim(bottom=0)
+        ax_count.set_ylabel("Cumulative Event Count")
+        ax_count.set_title("Cumulative Event Count", fontweight="bold")
+
+        fig.tight_layout()
+        return fig
+
+
+def make_raw_trace_figure(
+    timestamp: np.ndarray,
+    mass: np.ndarray,
+) -> Figure:
+    """Plot the complete raw mass trace over elapsed experiment time."""
+    validated = _validate_raw_trace(timestamp, mass)
+    if validated is None:
+        raise ValueError("Raw trace data are required for the raw trace figure.")
+    time_values, mass_values = validated
+
+    with rc_context(PLOT_STYLE):
+        fig = Figure(figsize=(13, 5))
+        ax = fig.subplots()
+        stride = max(1, int(np.ceil(len(time_values) / RAW_TRACE_MAX_POINTS)))
+        ax.plot(
+            time_values[::stride] / 3600.0,
+            mass_values[::stride],
+            color="#222222",
+            linewidth=0.7,
+        )
+        ax.set_xlabel("Elapsed Time (Hours)")
+        ax.set_ylabel("Mass (g)")
+        ax.set_title("Raw Mass Trace", fontweight="bold")
+        fig.tight_layout()
+        return fig
+
+
 def build_publication_figures(
     data: pd.DataFrame,
+    timestamp: np.ndarray | None = None,
+    mass: np.ndarray | None = None,
 ) -> list[tuple[str, str, Figure]]:
-    """Build the standard figure set for display or export."""
+    """Build the five event-level figures and optional raw trace."""
     df = prepare_figure_data(data)
     builders = (
         ("fig1_spatial_and_counts", "Spatial & Counts", make_spatial_counts_figure),
         ("fig2_radial_distance_analysis", "Radial Distance", make_radial_figure),
         ("fig3_mass_and_duration", "Mass & Duration", make_mass_duration_figure),
         ("fig4_event_chronology", "Chronology", make_chronology_figure),
+        (
+            "fig5_cumulative_output",
+            "Cumulative Output",
+            lambda frame: make_cumulative_output_figure(frame, timestamp),
+        ),
     )
-    return [
+    figures = [
         (stem, title, builder(df))
         for stem, title, builder in builders
     ]
+
+    raw_trace = _validate_raw_trace(timestamp, mass)
+    if raw_trace is not None:
+        time_values, mass_values = raw_trace
+        figures.append((
+            "fig6_raw_trace",
+            "Raw Trace",
+            make_raw_trace_figure(time_values, mass_values),
+        ))
+
+    return figures
 
 
 def save_publication_figures(
@@ -396,9 +548,13 @@ def generate_publication_figures(
     output_dir: str | Path,
     formats: tuple[str, ...] | list[str] = ("png", "svg"),
     dpi: int = 300,
+    timestamp: np.ndarray | None = None,
+    mass: np.ndarray | None = None,
 ) -> list[Path]:
-    """Build and save the standard four-figure publication set."""
-    figures = build_publication_figures(data)
+    """Build and save the publication set available for the supplied data."""
+    figures = build_publication_figures(
+        data, timestamp=timestamp, mass=mass,
+    )
     try:
         return save_publication_figures(figures, output_dir, formats, dpi)
     finally:

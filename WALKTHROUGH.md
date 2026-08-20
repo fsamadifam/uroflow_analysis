@@ -100,7 +100,7 @@ Spatial annotation requires the optional OpenCV and Matplotlib packages, a video
 5. In the Events table, select an event and click **Mark Event Location**.
 6. Move the frame-time slider if needed, click the event position in the image, and confirm the location.
 
-Use the **Needs location** filter to find unfinished annotations. The **Analysis Figures** button previews the spatial, radial, mass/duration, and chronology figures and saves the selected figure as PNG or SVG. **Generate Publication Figures** exports the complete set in both formats. Recalibrating later offers to recompute real-world coordinates from the saved image points.
+Use the **Needs location** filter to find unfinished annotations. The **Analysis Figures** button previews the spatial/count, radial-distance, mass/duration, chronology, cumulative-output, and raw-trace figures and saves the selected figure as PNG or SVG. **Generate Publication Figures** exports the complete set in both formats. Recalibrating later offers to recompute real-world coordinates from the saved image points.
 
 Resizing the **Analysis Figures** window affects only the preview. Individual
 and whole-set exports are rebuilt at the original fixed figure dimensions.

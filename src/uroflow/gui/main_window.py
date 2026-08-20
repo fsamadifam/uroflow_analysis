@@ -949,6 +949,8 @@ class MainWindow(QMainWindow):
                 project=self.project,
                 default_output_dir=default_dir,
                 parent=self,
+                timestamp=self.timestamp,
+                mass=self.mass,
             )
         except Exception as e:
             QMessageBox.critical(self, "Figure Generation Error", str(e))
@@ -983,7 +985,10 @@ class MainWindow(QMainWindow):
             )
 
             paths = generate_publication_figures(
-                project_to_dataframe(self.project), output_dir
+                project_to_dataframe(self.project),
+                output_dir,
+                timestamp=self.timestamp,
+                mass=self.mass,
             )
             self.status_label.setText(
                 f"Generated {len(paths)} publication figure files"
