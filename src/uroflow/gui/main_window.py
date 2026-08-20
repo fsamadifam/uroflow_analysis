@@ -160,8 +160,8 @@ class MainWindow(QMainWindow):
         self.overview_plot.calibrate_camera_requested.connect(
             self._open_calibration_dialog
         )
-        self.overview_plot.spatial_analysis_requested.connect(
-            self._open_spatial_analysis
+        self.overview_plot.analysis_figures_requested.connect(
+            self._open_analysis_figures
         )
         left_layout.addWidget(self.overview_plot, stretch=2)
         
@@ -271,6 +271,21 @@ class MainWindow(QMainWindow):
         edit_menu.addAction(self.redo_action)
         
         self._update_undo_redo_actions()
+
+        # Analysis menu
+        analysis_menu = menubar.addMenu("&Analysis")
+
+        analysis_figures_action = QAction("&Analysis Figures...", self)
+        analysis_figures_action.triggered.connect(self._open_analysis_figures)
+        analysis_menu.addAction(analysis_figures_action)
+
+        generate_figures_action = QAction(
+            "&Generate Publication Figures...", self
+        )
+        generate_figures_action.triggered.connect(
+            self._generate_publication_figures
+        )
+        analysis_menu.addAction(generate_figures_action)
         
         # Help menu
         help_menu = menubar.addMenu("&Help")
@@ -914,6 +929,74 @@ class MainWindow(QMainWindow):
                 QMessageBox.information(self, "Export Complete", f"Exported {len(self.project.events)} events")
             except Exception as e:
                 QMessageBox.critical(self, "Export Error", str(e))
+
+    def _open_analysis_figures(self):
+        """Show and export the standard analysis figures."""
+        if not self.project:
+            QMessageBox.warning(self, "No Project", "Please load a project first.")
+            return
+
+        default_dir = (
+            Path(self.project_path).parent
+            if self.project_path
+            else Path(self.project.input_csv_path).parent
+        )
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            from uroflow.gui.analysis_figures_dialog import AnalysisFiguresDialog
+
+            dialog = AnalysisFiguresDialog(
+                project=self.project,
+                default_output_dir=default_dir,
+                parent=self,
+            )
+        except Exception as e:
+            QMessageBox.critical(self, "Figure Generation Error", str(e))
+            return
+        finally:
+            QApplication.restoreOverrideCursor()
+
+        dialog.exec()
+
+    def _generate_publication_figures(self):
+        """Generate PNG and SVG copies of the complete figure set."""
+        if not self.project:
+            QMessageBox.warning(self, "No Project", "Please load a project first.")
+            return
+
+        default_dir = (
+            Path(self.project_path).parent
+            if self.project_path
+            else Path(self.project.input_csv_path).parent
+        )
+        output_dir = QFileDialog.getExistingDirectory(
+            self, "Select Figure Output Folder", str(default_dir)
+        )
+        if not output_dir:
+            return
+
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            from uroflow.reporting.figures import (
+                generate_publication_figures,
+                project_to_dataframe,
+            )
+
+            paths = generate_publication_figures(
+                project_to_dataframe(self.project), output_dir
+            )
+            self.status_label.setText(
+                f"Generated {len(paths)} publication figure files"
+            )
+            QMessageBox.information(
+                self,
+                "Publication Figures Generated",
+                f"Generated {len(paths)} files in:\n{output_dir}",
+            )
+        except Exception as exc:
+            QMessageBox.critical(self, "Figure Generation Error", str(exc))
+        finally:
+            QApplication.restoreOverrideCursor()
     
     def autosave(self):
         """Autosave project if needed."""
@@ -1185,35 +1268,6 @@ class MainWindow(QMainWindow):
                     f"({real_x:.1f}, {real_y:.1f}) cm"
                 )
                 self.event_widget.update_event(event_id)
-    
-    def _open_spatial_analysis(self):
-        """Open spatial analysis panel/dialog."""
-        from uroflow.spatial.gui.spatial_overlay import SpatialAnalysisDialog
-        
-        if not self.project:
-            QMessageBox.warning(self, "No Project", "Please load a project first.")
-            return
-        
-        calibration = self._load_calibration_from_project()
-        
-        events_with_coords = [
-            e for e in self.project.events if e.spatial_coords is not None
-        ]
-        
-        if not events_with_coords:
-            QMessageBox.information(
-                self, "No Spatial Data",
-                "No events have spatial coordinates yet.\n\n"
-                "Use Mark Event Location from the Events table to annotate events."
-            )
-            return
-        
-        dialog = SpatialAnalysisDialog(
-            events=events_with_coords,
-            calibration=calibration,
-            parent=self,
-        )
-        dialog.exec()
     
     def _on_event_selected(self, event_id: str):
         """Handle event selection from table or plot.

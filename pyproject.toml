@@ -16,6 +16,7 @@ dependencies = [
     "pyqtgraph>=0.13.0",
     "numpy>=1.24.0",
     "pandas>=2.0.0",
+    "matplotlib>=3.7.0",
 ]
 
 [project.optional-dependencies]
@@ -27,6 +28,7 @@ dev = [
 [project.scripts]
 uroflow-detect = "uroflow.cli.detect_events:main"
 uroflow-gui = "uroflow.gui.app:main"
+uroflow-figures = "uroflow.cli.generate_figures:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

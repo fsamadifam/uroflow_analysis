@@ -21,7 +21,7 @@ class OverviewPlot(QWidget):
     create_event_confirmed = Signal(float, float)  # start_time, end_time - when user confirms creation
     detect_events_requested = Signal()  # When detect events button is clicked
     calibrate_camera_requested = Signal()  # When calibrate camera button is clicked
-    spatial_analysis_requested = Signal()  # When spatial analysis button is clicked
+    analysis_figures_requested = Signal()  # When analysis figures button is clicked
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -155,8 +155,8 @@ class OverviewPlot(QWidget):
         )
         toolbar.addWidget(self.calibrate_camera_btn)
 
-        self.spatial_analysis_btn = QPushButton("Spatial Analysis")
-        self.spatial_analysis_btn.setStyleSheet("""
+        self.analysis_figures_btn = QPushButton("Analysis Figures")
+        self.analysis_figures_btn.setStyleSheet("""
             QPushButton {
                 background-color: #673AB7;
                 color: white;
@@ -169,10 +169,10 @@ class OverviewPlot(QWidget):
                 background-color: #5E35B1;
             }
         """)
-        self.spatial_analysis_btn.clicked.connect(
-            self.spatial_analysis_requested.emit
+        self.analysis_figures_btn.clicked.connect(
+            self.analysis_figures_requested.emit
         )
-        toolbar.addWidget(self.spatial_analysis_btn)
+        toolbar.addWidget(self.analysis_figures_btn)
 
         toolbar.addStretch()
 

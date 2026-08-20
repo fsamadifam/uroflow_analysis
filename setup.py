@@ -22,6 +22,7 @@ setup(
         "console_scripts": [
             "uroflow-detect=uroflow.cli.detect_events:main",
             "uroflow-gui=uroflow.gui.app:main",
+            "uroflow-figures=uroflow.cli.generate_figures:main",
         ],
     },
 )
