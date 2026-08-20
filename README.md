@@ -9,7 +9,7 @@ Uroflow Analysis is a desktop application for reviewing long-duration uroflowmet
 - Review events in synchronized overview, detail, table, gallery, info, and summary views.
 - Label events as urine, feces, or bad; adjust boundaries; create or delete events; and undo or redo review actions.
 - Match events to timestamped video files.
-- Optionally calibrate the cage, mark event locations, and export spatial summaries.
+- Optionally calibrate the cage, mark event locations, and preview or export standardized analysis figures.
 - Save the complete review state to a project JSON and export a flat events CSV.
 
 For the complete first-session workflow, see [WALKTHROUGH.md](WALKTHROUGH.md).
@@ -19,7 +19,7 @@ For the complete first-session workflow, see [WALKTHROUGH.md](WALKTHROUGH.md).
 - Python 3.10 or newer
 - A desktop environment capable of running Qt
 - A uroflow CSV and a session configuration JSON
-- Optional: timestamped video files for video review and spatial analysis
+- Optional: timestamped video files for video review and location annotation
 
 ## Installation
 
@@ -45,7 +45,7 @@ python -m pip install --upgrade pip
 python -m pip install -e .
 ```
 
-If `python` is not available as a command on Windows, use `py` in its place. Camera calibration and spatial analysis also require OpenCV and Matplotlib:
+If `python` is not available as a command on Windows, use `py` in its place. Camera calibration and location-based figures also require OpenCV and Matplotlib:
 
 ```bash
 python -m pip install opencv-python matplotlib
@@ -73,6 +73,15 @@ uroflow-gui path/to/project_session-name.json
 
 Quote paths that contain spaces.
 
+Publication figures can be generated from either a saved project or an exported
+events CSV without opening the GUI:
+
+```bash
+uroflow-figures path/to/project.json --output path/to/figures
+```
+
+The command creates PNG and SVG versions of the four standard figures at 300 DPI.
+
 ## Input data
 
 ### Uroflow CSV
@@ -94,7 +103,14 @@ The file must contain valid JSON. The commonly used metadata fields are `cage_id
 - **Project JSON** preserves source-file paths, detection settings, events, labels, edits, video-folder selection, and spatial calibration. Keep the source CSV and config with the project when moving an analysis; the application will prompt for replacements if their saved paths cannot be found.
 - **Events CSV** contains event timing, labels, source, review flags, computed features, spatial coordinates, and calibration metadata where available.
 - **Gallery PNG** is available from the **Gallery** tab.
-- **Spatial CSV and plots** are available from **Spatial Analysis** after locations have been annotated.
+- **Analysis Figures** previews the four standard figures and saves the selected
+  plot as PNG or SVG. **Generate Publication Figures** exports the complete set
+  in both formats after locations have been annotated.
+
+Resizing the **Analysis Figures** window changes only the on-screen preview.
+Saved figures are rebuilt at the original fixed canvas sizes. At 300 DPI,
+Figure 1 is 3900 × 1800 pixels, Figures 2–3 are 3900 × 1500 pixels, and
+Figure 4 is 2700 × 1500 pixels.
 
 New projects are not autosaved until they have been saved once. After a project path exists, the application autosaves approximately every five minutes and again when it closes.
 

@@ -100,7 +100,10 @@ Spatial annotation requires the optional OpenCV and Matplotlib packages, a video
 5. In the Events table, select an event and click **Mark Event Location**.
 6. Move the frame-time slider if needed, click the event position in the image, and confirm the location.
 
-Use the **Needs location** filter to find unfinished annotations. The **Spatial Analysis** button opens urine/feces filters, location plots, summary statistics, spatial CSV export, and plot export. Recalibrating later offers to recompute real-world coordinates from the saved image points.
+Use the **Needs location** filter to find unfinished annotations. The **Analysis Figures** button previews the spatial, radial, mass/duration, and chronology figures and saves the selected figure as PNG or SVG. **Generate Publication Figures** exports the complete set in both formats. Recalibrating later offers to recompute real-world coordinates from the saved image points.
+
+Resizing the **Analysis Figures** window affects only the preview. Individual
+and whole-set exports are rebuilt at the original fixed figure dimensions.
 
 ## 8. Save and export
 
@@ -111,7 +114,7 @@ When review is complete:
 1. Save the project.
 2. Click **Export Events CSV** in the Events tab or use `Ctrl+E`.
 3. Optionally save a gallery PNG from the Gallery tab.
-4. If locations were annotated, open **Spatial Analysis** to export its CSV or figures.
+4. If locations were annotated, open **Analysis Figures** to review or save individual plots, or use **Generate Publication Figures** to export the complete set.
 
 Exports do not replace the project JSON. Reopen the JSON whenever labels, event boundaries, or locations need further editing.
 
