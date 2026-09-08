@@ -120,6 +120,7 @@ Exports do not replace the project JSON. Reopen the JSON whenever labels, event 
 
 ## Troubleshooting
 
+- **`run_gui.bat` says Uroflow is not installed:** run `setup_windows.bat` from the repository folder, then try again.
 - **`uroflow-gui` is not recognized:** activate the virtual environment and reinstall with `python -m pip install -e .`.
 - **A new project shows few or no events:** click **Detect Events**; automatic slope detection is intentionally a separate step.
 - **A project opens but cannot find its data:** select the relocated CSV and config when prompted, then save the project to retain the new paths.

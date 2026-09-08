@@ -23,6 +23,26 @@ For the complete first-session workflow, see [WALKTHROUGH.md](WALKTHROUGH.md).
 
 ## Installation
 
+### Windows
+
+Run the one-time setup script from the repository folder:
+
+```bat
+setup_windows.bat
+```
+
+The script checks for Python 3.10 or newer, creates `.venv`, upgrades pip, and installs Uroflow Analysis and its dependencies. If Python is missing or too old, it displays installation instructions.
+
+After setup, start the application with:
+
+```bat
+run_gui.bat
+```
+
+The launcher uses the repository's `.venv` directly, so manual activation is not required.
+
+### Manual setup
+
 From the repository root, create a virtual environment and install the package in editable mode:
 
 ```bash
@@ -55,7 +75,7 @@ For development dependencies, use `python -m pip install -e ".[dev]"`.
 
 ## Quick start
 
-1. Start the application with `uroflow-gui`. On Windows, `run_gui.bat` is also available when `uroflow-gui` is on `PATH`.
+1. Start the application with `uroflow-gui`. On Windows, run `run_gui.bat`; it launches the copy installed in the repository's `.venv`.
 2. Choose **File > New Project**, then select the uroflow CSV and `session_config.json`. Selecting a video folder is optional.
 3. Click **Detect Events**, review the settings, and run detection. Creating a project initially loads acquisition-flag events only; automatic slope detection runs when this button is used.
 4. Review and label the candidates in the **Events** table or plots.
