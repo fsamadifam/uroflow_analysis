@@ -100,10 +100,11 @@ events CSV without opening the GUI:
 uroflow-figures path/to/project.json --output path/to/figures
 ```
 
-The command creates PNG and SVG versions of the available figures at 300 DPI.
-A saved project with an accessible raw uroflow CSV produces all six figures;
-an events CSV produces the five event-level figures because it does not contain
-the raw signal needed for the raw trace figure.
+The command creates PNG and SVG versions of every available figure at 300 DPI.
+Projects with raw data and at least one calibrated event location produce all
+six figures. Without any location annotations, the three location-independent
+event figures and the raw trace are still produced; an events CSV omits the raw
+trace because it does not contain the source signal.
 
 ## Input data
 
@@ -129,7 +130,10 @@ The file must contain valid JSON. The commonly used metadata fields are `cage_id
 - **Analysis Figures** previews the spatial/count, radial-distance,
   mass/duration, chronology, cumulative-output, and raw-trace figures. The
   selected plot can be saved as PNG or SVG. **Generate Publication Figures**
-  exports the complete set in both formats after locations have been annotated.
+  exports every available plot in both formats. Spatial/count and
+  radial-distance figures appear only after at least one event has a calibrated
+  location; the mass/duration, chronology, cumulative-output, and raw-trace
+  figures do not require camera calibration or location annotations.
 
 Resizing the **Analysis Figures** window changes only the on-screen preview.
 Saved figures are rebuilt at their fixed publication canvas sizes and do not

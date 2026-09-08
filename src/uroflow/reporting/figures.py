@@ -124,6 +124,13 @@ def _available_order(df: pd.DataFrame) -> list[str]:
     return [label for label in LABEL_ORDER if label in labels]
 
 
+def _has_complete_values(df: pd.DataFrame, columns: set[str]) -> bool:
+    """Return whether at least one row contains all requested columns."""
+    return columns.issubset(df.columns) and not df.dropna(
+        subset=sorted(columns)
+    ).empty
+
+
 def _category_tick_labels(df: pd.DataFrame, order: list[str]) -> list[str]:
     return [
         f"{label.capitalize()} (n={(df['label_user'] == label).sum()})"
@@ -493,11 +500,18 @@ def build_publication_figures(
     timestamp: np.ndarray | None = None,
     mass: np.ndarray | None = None,
 ) -> list[tuple[str, str, Figure]]:
-    """Build the five event-level figures and optional raw trace."""
+    """Build location-independent figures plus any available spatial figures."""
     df = prepare_figure_data(data)
-    builders = (
-        ("fig1_spatial_and_counts", "Spatial & Counts", make_spatial_counts_figure),
-        ("fig2_radial_distance_analysis", "Radial Distance", make_radial_figure),
+    builders = []
+    if _has_complete_values(df, {"norm_x", "norm_y"}):
+        builders.append(
+            ("fig1_spatial_and_counts", "Spatial & Counts", make_spatial_counts_figure)
+        )
+    if _has_complete_values(df, {"norm_r"}):
+        builders.append(
+            ("fig2_radial_distance_analysis", "Radial Distance", make_radial_figure)
+        )
+    builders.extend((
         ("fig3_mass_and_duration", "Mass & Duration", make_mass_duration_figure),
         ("fig4_event_chronology", "Chronology", make_chronology_figure),
         (
@@ -505,7 +519,7 @@ def build_publication_figures(
             "Cumulative Output",
             lambda frame: make_cumulative_output_figure(frame, timestamp),
         ),
-    )
+    ))
     figures = [
         (stem, title, builder(df))
         for stem, title, builder in builders
