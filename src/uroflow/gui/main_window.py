@@ -150,6 +150,9 @@ class MainWindow(QMainWindow):
         left_panel = QWidget()
         left_layout = QVBoxLayout(left_panel)
         left_layout.setContentsMargins(5, 5, 5, 5)
+        plot_splitter = QSplitter(Qt.Vertical)
+        plot_splitter.setChildrenCollapsible(False)
+        left_layout.addWidget(plot_splitter)
         
         # Overview plot
         self.overview_plot = OverviewPlot()
@@ -164,13 +167,15 @@ class MainWindow(QMainWindow):
         self.overview_plot.analysis_figures_requested.connect(
             self._open_analysis_figures
         )
-        left_layout.addWidget(self.overview_plot, stretch=2)
+        plot_splitter.addWidget(self.overview_plot)
         
         # Detail plot
         self.detail_plot = DetailPlot()
         self.detail_plot.setMinimumHeight(200)
         self.detail_plot.boundary_changed.connect(self._on_boundary_changed)
-        left_layout.addWidget(self.detail_plot, stretch=1)
+        plot_splitter.addWidget(self.detail_plot)
+        # Keep the full-day trace as context while prioritizing event review.
+        plot_splitter.setSizes([320, 340])
         
         main_splitter.addWidget(left_panel)
         
