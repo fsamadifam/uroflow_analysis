@@ -110,7 +110,7 @@ if errorlevel 1 (
 
 echo.
 echo Installing Uroflow Analysis and its dependencies...
-".venv\Scripts\python.exe" -m pip install -e . "opencv-python>=4.8.0"
+".venv\Scripts\python.exe" -m pip install -e .
 if errorlevel 1 (
     echo ERROR: Could not install Uroflow Analysis.
     goto :failed

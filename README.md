@@ -65,11 +65,7 @@ python -m pip install --upgrade pip
 python -m pip install -e .
 ```
 
-If `python` is not available as a command on Windows, use `py` in its place. Camera calibration and location-based figures also require OpenCV and Matplotlib:
-
-```bash
-python -m pip install opencv-python matplotlib
-```
+If `python` is not available as a command on Windows, use `py` in its place. OpenCV and Matplotlib are installed with the application for camera calibration and location-based figures.
 
 For development dependencies, use `python -m pip install -e ".[dev]"`.
 

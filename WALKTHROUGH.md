@@ -91,7 +91,7 @@ If no video is found, check all three inputs: the CSV's `wall_clock_time`, the c
 
 ## 7. Add spatial locations (optional)
 
-Spatial annotation requires the optional OpenCV and Matplotlib packages, a video folder, and a valid camera calibration.
+Spatial annotation requires a video folder and a valid camera calibration. OpenCV and Matplotlib are installed with the application.
 
 1. Click **Calibrate Camera**.
 2. Select a representative video and enter the real cage radius.
@@ -126,5 +126,5 @@ Exports do not replace the project JSON. Reopen the JSON whenever labels, event 
 - **A project opens but cannot find its data:** select the relocated CSV and config when prompted, then save the project to retain the new paths.
 - **Video buttons are disabled:** set a video folder through the File menu.
 - **Videos are present but do not match:** verify the required filename timestamps and session clock metadata.
-- **Spatial tools fail to import:** install `opencv-python` and `matplotlib` in the same environment as Uroflow Analysis.
+- **Spatial tools fail to import:** rerun `setup_windows.bat`, or run `python -m pip install -e .` in the environment used to launch Uroflow Analysis, then restart the GUI.
 - **Recent work is not autosaving:** save a new project once to establish its project JSON path.

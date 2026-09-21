@@ -10,6 +10,7 @@ from PySide6.QtCore import Qt, Signal, QTimer, QObject
 from PySide6.QtGui import QAction, QKeySequence
 from pathlib import Path
 from typing import Optional
+import sys
 import time
 import numpy as np
 
@@ -1028,10 +1029,23 @@ class MainWindow(QMainWindow):
     
     def _open_calibration_dialog(self):
         """Open spatial calibration dialog."""
-        from uroflow.spatial.gui.calibration_dialog import CalibrationDialog
-
         if not self.project:
             QMessageBox.warning(self, "No Project", "Please load or create a project first.")
+            return
+
+        try:
+            from uroflow.spatial.gui.calibration_dialog import CalibrationDialog
+        except ModuleNotFoundError as exc:
+            if exc.name != "cv2":
+                raise
+            QMessageBox.critical(
+                self,
+                "Camera Calibration Unavailable",
+                "OpenCV is missing from the Python environment running this GUI.\n\n"
+                "Install OpenCV with:\n"
+                f'"{sys.executable}" -m pip install opencv-python\n\n'
+                "Then restart the GUI.",
+            )
             return
         
         video_folder = ""
