@@ -77,7 +77,7 @@ Work through the **Events** table in chronological order:
 5. Check **Needs Manual** when the event requires later adjudication.
 6. Delete false candidates with `Delete`, `Backspace`, the table button, or the row context menu.
 
-Use the **Unlabeled only**, **Needs manual**, **Needs location**, and label filters to create focused review queues. The search box matches event IDs and notes. `Ctrl+Z` and `Ctrl+Y` undo or redo label, delete, and detection commands during the current session.
+Use the **Unlabeled only**, **Needs manual**, **Needs location**, and label filters to create focused review queues. The search box matches event IDs and notes. `Ctrl+Z` and `Ctrl+Y` undo or redo boundary changes, manual event creation, table labels and flags, classification, location annotations, deletion, and detection during the current project session.
 
 To add a missed event, click **+ Create New Event**, move the green region over the event, adjust its edges, and click **Add Event**. The new event is marked as a manual source and its features are calculated immediately.
 

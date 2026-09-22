@@ -9,12 +9,13 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, Signal, QTimer, QObject
 from PySide6.QtGui import QAction, QKeySequence
 from pathlib import Path
+from copy import deepcopy
 from typing import Optional
 import sys
 import time
 import numpy as np
 
-from uroflow.core.types import Project, DetectionParams
+from uroflow.core.types import Project, DetectionParams, SpatialCoordinates
 from uroflow.core.project_io import (
     load_project, save_project, autosave_project, standard_session_name,
 )
@@ -30,7 +31,11 @@ from uroflow.gui.event_widget import EventWidget
 from uroflow.gui.gallery import EventGallery
 from uroflow.gui.info_panel import InfoPanel
 from uroflow.gui.summary_panel import SummaryPanel
-from uroflow.gui.actions import UndoStack, LabelEventCommand, DeleteEventCommand, DetectEventsCommand
+from uroflow.gui.actions import (
+    UndoStack, LabelEventCommand, EditEventFieldCommand, DeleteEventCommand,
+    CreateEventCommand, EditBoundaryCommand, ClassifyEventsCommand,
+    DetectEventsCommand,
+)
 from uroflow.gui.detect_events_dialog import DetectEventsDialog
 
 
@@ -190,6 +195,7 @@ class MainWindow(QMainWindow):
         self.event_widget.prev_event_requested.connect(self._on_prev_event)
         self.event_widget.delete_event_requested.connect(self._delete_event)
         self.event_widget.event_label_changed.connect(self._on_table_event_label_changed)
+        self.event_widget.event_edit_requested.connect(self._on_table_event_edit_requested)
         self.event_widget.export_events_requested.connect(self.export_events_dialog)
         self.event_widget.mark_event_location_requested.connect(
             self._open_annotation_dialog
@@ -267,12 +273,12 @@ class MainWindow(QMainWindow):
         edit_menu = menubar.addMenu("&Edit")
         
         self.undo_action = QAction("&Undo", self)
-        self.undo_action.setShortcut(QKeySequence.Undo)
+        self.undo_action.setShortcut(QKeySequence("Ctrl+Z"))
         self.undo_action.triggered.connect(self._do_undo)
         edit_menu.addAction(self.undo_action)
         
         self.redo_action = QAction("&Redo", self)
-        self.redo_action.setShortcut(QKeySequence.Redo)
+        self.redo_action.setShortcut(QKeySequence("Ctrl+Y"))
         self.redo_action.triggered.connect(self._do_redo)
         edit_menu.addAction(self.redo_action)
         
@@ -333,6 +339,14 @@ class MainWindow(QMainWindow):
     def show_welcome_message(self):
         """Show welcome message in status bar."""
         self.status_label.setText("Welcome! Open a project or create a new one from File menu")
+
+    def _reset_review_history(self):
+        """Discard edits from the previous project and any delayed plot edit."""
+        self._boundary_change_timer.stop()
+        self._pending_boundary_change = None
+        self.undo_stack.clear()
+        self._update_undo_redo_actions()
+        self.current_event_id = None
     
     def load_project(self, project_path: str):
         """Load project from file."""
@@ -349,6 +363,7 @@ class MainWindow(QMainWindow):
 
             self.project = project
             self.project_path = project_path
+            self._reset_review_history()
             progress.setValue(1)
             
             # Load CSV data
@@ -582,6 +597,8 @@ class MainWindow(QMainWindow):
                 events=events,
                 video_folder_path=video_folder
             )
+            self.project_path = None
+            self._reset_review_history()
             
             self.timestamp = timestamp
             self.mass = mass
@@ -692,8 +709,7 @@ class MainWindow(QMainWindow):
             if self.project.events:
                 print(f"  Selecting first event: {self.project.events[0].event_id}")
                 try:
-                    self.current_event_id = self.project.events[0].event_id
-                    self._on_event_selected(self.current_event_id)
+                    self._on_event_selected(self.project.events[0].event_id)
                     print(f"  Event selected successfully")
                 except Exception as e:
                     print(f"  ERROR selecting event: {e}")
@@ -1165,7 +1181,6 @@ class MainWindow(QMainWindow):
     def _open_annotation_dialog(self, event_id: Optional[str] = None):
         """Open event location annotation dialog for an event."""
         from uroflow.spatial.gui.annotation_dialog import EventAnnotationDialog
-        from uroflow.core.types import SpatialCoordinates
         from uroflow.core.video import find_matching_videos, get_video_files
         
         if not self.project:
@@ -1282,19 +1297,23 @@ class MainWindow(QMainWindow):
             result = dialog.get_result()
             if result is not None:
                 img_x, img_y, real_x, real_y = result
-                event.spatial_coords = SpatialCoordinates(
+                coordinates = SpatialCoordinates(
                     image_x=img_x,
                     image_y=img_y,
                     real_x_cm=real_x,
                     real_y_cm=real_y,
                 )
-                event.update_modified()
-                self.project.update_modified()
+                if event.spatial_coords != coordinates:
+                    self.undo_stack.push(EditEventFieldCommand(
+                        self.project, event_id, "spatial_coords", coordinates
+                    ))
+                    self._update_undo_redo_actions()
                 self.status_label.setText(
                     f"Location marked for event {event_id[:8]}: "
                     f"({real_x:.1f}, {real_y:.1f}) cm"
                 )
                 self.event_widget.update_event(event_id)
+                self.event_widget.proxy_model.invalidateFilter()
     
     def _on_event_selected(self, event_id: str):
         """Handle event selection from table or plot.
@@ -1446,6 +1465,7 @@ class MainWindow(QMainWindow):
         # This prevents crashes from rapid signal firing during drag
         self._pending_boundary_change = (event_id, new_start_time, new_end_time)
         self._boundary_change_timer.start(100)  # 100ms debounce
+        self._update_undo_redo_actions()
     
     def _apply_boundary_change(self):
         """Apply the pending boundary change after debounce delay."""
@@ -1466,22 +1486,19 @@ class MainWindow(QMainWindow):
             if not event:
                 return
             
-            # Update times AND indices (indices are needed for feature computation)
-            event.start_time_s = new_start_time
-            event.end_time_s = new_end_time
-            event.start_idx = int(np.searchsorted(self.timestamp, new_start_time))
-            event.end_idx = int(np.searchsorted(self.timestamp, new_end_time, side='right'))
-            event.update_modified()
-            
-            baseline_window_s = self.project.detection_params.baseline_window_s
-            compute_features_for_events(
-                [event],
-                self.timestamp,
-                self.mass,
-                self.segments,
-                self.metadata,
-                baseline_window_s=baseline_window_s,
+            if (event.start_time_s, event.end_time_s) == (new_start_time, new_end_time):
+                self._update_undo_redo_actions()
+                return
+
+            command = EditBoundaryCommand(
+                self.project, self.timestamp, self.mass, self.segments,
+                event_id,
+                int(np.searchsorted(self.timestamp, new_start_time)),
+                int(np.searchsorted(self.timestamp, new_end_time, side='right')),
+                new_start_time, new_end_time,
             )
+            self.undo_stack.push(command)
+            self._update_undo_redo_actions()
 
             if self.detail_plot.current_event is event:
                 self.detail_plot.refresh_event_type(event)
@@ -1490,6 +1507,7 @@ class MainWindow(QMainWindow):
             self.overview_plot.update_event_bounds(event_id, new_start_time, new_end_time)
             
             # Update just the changed row in table (safer than full refresh)
+            self.event_widget.refresh_table()
             self.event_widget.update_event(event_id)
             
             # Update info panel with new values
@@ -1509,6 +1527,8 @@ class MainWindow(QMainWindow):
             print(f"  ERROR in _apply_boundary_change: {e}")
             import traceback
             traceback.print_exc()
+        finally:
+            self._update_undo_redo_actions()
     
     def _on_manual_event_requested(self, start_time: float, end_time: float):
         """Handle manual event creation request.
@@ -1554,12 +1574,8 @@ class MainWindow(QMainWindow):
             baseline_window_s=self.project.detection_params.baseline_window_s,
         )
         
-        # Add to project
-        self.project.events.append(new_event)
-        self.project.update_modified()
-        
-        # Sort events by start time
-        self.project.events.sort(key=lambda e: e.start_time_s)
+        self.undo_stack.push(CreateEventCommand(self.project, new_event))
+        self._update_undo_redo_actions()
         
         # Refresh all views
         self.event_widget.set_events(self.project.events, self.metadata)
@@ -1655,7 +1671,7 @@ class MainWindow(QMainWindow):
             
             # Preserve locked and manual events from existing project
             preserved_events = [
-                e for e in self.project.events
+                deepcopy(e) for e in self.project.events
                 if e.locked or e.source == "manual" or e.event_id not in removed_event_ids
             ]
             print(f"Preserving {len(preserved_events)} events ({sum(1 for e in preserved_events if e.locked)} locked, "
@@ -1851,8 +1867,6 @@ class MainWindow(QMainWindow):
         Args:
             classification_params: Dictionary with classification parameters
         """
-        from uroflow.core.features import auto_classify_events
-        
         try:
             if not self.project or not self.project.events:
                 QMessageBox.warning(self, "No Events", "No events to classify.")
@@ -1879,13 +1893,12 @@ class MainWindow(QMainWindow):
             print(f"Classifying {len(self.project.events)} existing events")
             print(f"{'='*60}")
             
-            # Classify existing events (modifies events in-place)
-            auto_classify_events(
-                self.project.events,
-                urine_min_mass_g=classification_params['urine_min_mass_g'],
-                feces_min_mass_g=classification_params['feces_min_mass_g'],
-                slope_ratio_threshold=classification_params['slope_ratio_threshold']
-            )
+            self.undo_stack.push(ClassifyEventsCommand(self.project, {
+                'urine_min_mass_g': classification_params['urine_min_mass_g'],
+                'feces_min_mass_g': classification_params['feces_min_mass_g'],
+                'slope_ratio_threshold': classification_params['slope_ratio_threshold'],
+            }))
+            self._update_undo_redo_actions()
             
             # Count classifications
             n_urine = sum(1 for e in self.project.events if e.label_user == "urine")
@@ -1963,19 +1976,17 @@ class MainWindow(QMainWindow):
         # Force another UI update
         QApplication.processEvents()
         
-        # Select first event if available and none selected
-        if self.project.events and not self.current_event_id:
-            self.current_event_id = self.project.events[0].event_id
-            self._on_event_selected(self.current_event_id)
-        elif self.current_event_id:
-            # Re-select current event if it still exists
-            event = self.project.get_event_by_id(self.current_event_id)
-            if event:
-                self._on_event_selected(self.current_event_id)
-            elif self.project.events:
-                # Current event was deleted, select first
-                self.current_event_id = self.project.events[0].event_id
-                self._on_event_selected(self.current_event_id)
+        # Rebuild selection even when the event ID did not change: its displayed
+        # fields may have changed through undo or redo.
+        selected_id = self.current_event_id
+        if not selected_id or not self.project.get_event_by_id(selected_id):
+            selected_id = self.project.events[0].event_id if self.project.events else None
+        self.current_event_id = None
+        if selected_id:
+            self._on_event_selected(selected_id)
+        else:
+            self.detail_plot.clear()
+            self.info_widget.set_event(None)
         
         print("_refresh_all_views: Complete")
     
@@ -2021,11 +2032,13 @@ class MainWindow(QMainWindow):
         """
         if not self.project or not self.current_event_id:
             return
+        current_event = self.project.get_event_by_id(self.current_event_id)
+        if not current_event or current_event.label_user == label:
+            return
         
         command = LabelEventCommand(self.project, self.current_event_id, label)
         self.undo_stack.push(command)
 
-        current_event = self.project.get_event_by_id(self.current_event_id)
         if current_event:
             self.detail_plot.refresh_event_type(current_event)
         
@@ -2045,6 +2058,22 @@ class MainWindow(QMainWindow):
         
         self.status_label.setText(f"Labeled event as {label}")
 
+    def _on_table_event_edit_requested(self, event_id: str, field: str, value):
+        """Apply a validated inline table edit through the review history."""
+        if not self.project:
+            return
+        event = self.project.get_event_by_id(event_id)
+        if not event or getattr(event, field) == value:
+            return
+        self.undo_stack.push(EditEventFieldCommand(self.project, event_id, field, value))
+        self._update_undo_redo_actions()
+        if field != "label_user":
+            self.event_widget.proxy_model.invalidateFilter()
+            self.event_gallery.update_events(self.project.events)
+            self.summary_widget.set_events(self.project.events)
+            if self.current_event_id == event_id:
+                self.info_widget.set_event(event)
+
     def _on_table_event_label_changed(self, event_id: str):
         """Refresh dependent views immediately after an inline table label edit."""
         if not self.project:
@@ -2054,7 +2083,6 @@ class MainWindow(QMainWindow):
         if not event:
             return
 
-        self.project.update_modified()
         self.overview_plot.set_data(
             self.timestamp, self.mass, self.segments, self.gaps, self.project.events
         )
@@ -2093,7 +2121,7 @@ class MainWindow(QMainWindow):
         self.undo_stack.push(command)
         
         # Update UI
-        self.event_widget.remove_event(event_id)
+        self.event_widget.set_events(self.project.events, self.metadata)
         self.overview_plot.set_data(self.timestamp, self.mass, self.segments, self.gaps, self.project.events)
         self.detail_plot.clear()
         self._update_undo_redo_actions()
@@ -2117,40 +2145,42 @@ class MainWindow(QMainWindow):
     
     def _do_undo(self):
         """Execute undo command."""
+        if self._pending_boundary_change is not None:
+            self._boundary_change_timer.stop()
+            self._apply_boundary_change()
         command = self.undo_stack.undo()
         if command:
-            # Refresh UI
-            self.event_widget.set_events(self.project.events, self.metadata)
-            self.overview_plot.set_data(self.timestamp, self.mass, self.segments, self.gaps, self.project.events)
-            current_event = self.project.get_event_by_id(self.current_event_id)
-            if current_event:
-                self.detail_plot.refresh_event_type(current_event)
-            self.summary_widget.set_events(self.project.events)
+            self._refresh_after_history_change()
             self._update_undo_redo_actions()
-            self._update_counts()
             self.status_label.setText(f"Undone: {command.description()}")
     
     def _do_redo(self):
         """Execute redo command."""
+        if self._pending_boundary_change is not None:
+            self._boundary_change_timer.stop()
+            self._apply_boundary_change()
         command = self.undo_stack.redo()
         if command:
-            # Refresh UI
-            self.event_widget.set_events(self.project.events, self.metadata)
-            self.overview_plot.set_data(self.timestamp, self.mass, self.segments, self.gaps, self.project.events)
-            current_event = self.project.get_event_by_id(self.current_event_id)
-            if current_event:
-                self.detail_plot.refresh_event_type(current_event)
-            self.summary_widget.set_events(self.project.events)
+            self._refresh_after_history_change()
             self._update_undo_redo_actions()
-            self._update_counts()
             self.status_label.setText(f"Redone: {command.description()}")
+
+    def _refresh_after_history_change(self):
+        """Refresh every review surface and repair a deleted selection."""
+        if not self.project:
+            return
+        self._refresh_all_views()
+        self._update_counts()
     
     def _update_undo_redo_actions(self):
         """Update undo/redo action states."""
-        self.undo_action.setEnabled(self.undo_stack.can_undo())
-        self.redo_action.setEnabled(self.undo_stack.can_redo())
+        pending_boundary = self._pending_boundary_change is not None
+        self.undo_action.setEnabled(pending_boundary or self.undo_stack.can_undo())
+        self.redo_action.setEnabled(not pending_boundary and self.undo_stack.can_redo())
         
-        if self.undo_stack.can_undo():
+        if pending_boundary:
+            self.undo_action.setText("Undo: Edit event boundaries")
+        elif self.undo_stack.can_undo():
             self.undo_action.setText(f"Undo: {self.undo_stack.get_undo_text()}")
         else:
             self.undo_action.setText("Undo")

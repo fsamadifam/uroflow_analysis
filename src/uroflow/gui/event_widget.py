@@ -26,12 +26,14 @@ class EventWidget(QWidget):
     delete_event_requested = Signal(str)  # event_id
     mark_event_location_requested = Signal(str)  # event_id
     event_label_changed = Signal(str)  # event_id
+    event_edit_requested = Signal(str, str, object)
     export_events_requested = Signal()
     
     def __init__(self, parent=None):
         super().__init__(parent)
         
         self.table_model = EventTableModel()
+        self.table_model.edit_requested.connect(self.event_edit_requested.emit)
         self.table_model.label_changed.connect(self.event_label_changed.emit)
         self.table_model.label_changed.connect(
             lambda _event_id: self._update_count_label()
@@ -310,9 +312,9 @@ class EventWidget(QWidget):
                 print(f"Table row clicked: {event.event_id[:8]}")
                 self.event_selected.emit(event.event_id)
             
-            # Handle checkbox toggle for Locked column
-            if source_index.column() == EventTableModel.COL_LOCKED:
-                # Toggle the locked state
+            # Handle review flag checkboxes.
+            if source_index.column() in (EventTableModel.COL_LOCKED,
+                                         EventTableModel.COL_NEEDS_MANUAL):
                 # Get current state from source model
                 current_state = self.table_model.data(source_index, Qt.CheckStateRole)
                 new_state = Qt.Unchecked if current_state == Qt.Checked else Qt.Checked

@@ -1,9 +1,10 @@
 """Action handlers and undo/redo command pattern."""
 
 from abc import ABC, abstractmethod
+from copy import deepcopy
 from typing import Optional, List
 from uroflow.core.types import Event, Project, DetectionParams
-from uroflow.core.features import recompute_features_for_event
+from uroflow.core.features import recompute_features_for_event, auto_classify_events
 
 
 class Command(ABC):
@@ -25,32 +26,64 @@ class Command(ABC):
         pass
 
 
-class LabelEventCommand(Command):
-    """Command to label an event."""
-    
-    def __init__(self, project: Project, event_id: str, new_label: str):
+class EditEventFieldCommand(Command):
+    """Change one review field while retaining its original value for redo."""
+
+    FIELD_DESCRIPTIONS = {
+        "label_user": "Label event",
+        "locked": "Change event lock",
+        "needs_manual": "Change manual review flag",
+        "spatial_coords": "Mark event location",
+    }
+
+    def __init__(self, project: Project, event_id: str, field: str, value):
+        if field not in self.FIELD_DESCRIPTIONS:
+            raise ValueError(f"Unsupported review field: {field}")
         self.project = project
         self.event_id = event_id
-        self.new_label = new_label
-        self.old_label = None
+        self.field = field
+        self.value = deepcopy(value)
+        self.old_value = None
+        self.old_modified_at = None
+        self.new_modified_at = None
+        self._captured = False
     
     def execute(self):
-        """Set event label."""
+        """Apply the edit; capture the old value only on the first execution."""
         event = self.project.get_event_by_id(self.event_id)
         if event:
-            self.old_label = event.label_user
-            event.label_user = self.new_label
-            event.update_modified()
+            if not self._captured:
+                self.old_value = deepcopy(getattr(event, self.field))
+                self.old_modified_at = event.modified_at
+                self._captured = True
+            setattr(event, self.field, deepcopy(self.value))
+            if self.new_modified_at is None:
+                event.update_modified()
+                self.new_modified_at = event.modified_at
+            else:
+                event.modified_at = self.new_modified_at
+            self.project.update_modified()
     
     def undo(self):
-        """Restore old label."""
+        """Restore the field, including an originally empty or missing value."""
         event = self.project.get_event_by_id(self.event_id)
-        if event and self.old_label is not None:
-            event.label_user = self.old_label
-            event.update_modified()
+        if event and self._captured:
+            setattr(event, self.field, deepcopy(self.old_value))
+            event.modified_at = self.old_modified_at
+            self.project.update_modified()
     
     def description(self) -> str:
-        return f"Label event as '{self.new_label}'"
+        return self.FIELD_DESCRIPTIONS[self.field]
+
+
+class LabelEventCommand(EditEventFieldCommand):
+    """Command to label an event."""
+
+    def __init__(self, project: Project, event_id: str, new_label: str):
+        super().__init__(project, event_id, "label_user", new_label)
+
+    def description(self) -> str:
+        return f"Label event as '{self.value}'"
 
 
 class DeleteEventCommand(Command):
@@ -69,12 +102,14 @@ class DeleteEventCommand(Command):
                 self.event_index = i
                 self.deleted_event = event
                 self.project.events.pop(i)
+                self.project.update_modified()
                 break
     
     def undo(self):
         """Restore deleted event."""
         if self.deleted_event and self.event_index is not None:
             self.project.events.insert(self.event_index, self.deleted_event)
+            self.project.update_modified()
     
     def description(self) -> str:
         return "Delete event"
@@ -91,10 +126,12 @@ class CreateEventCommand(Command):
         """Add event to project."""
         self.project.events.append(self.event)
         self.project.sort_events_by_time()
+        self.project.update_modified()
     
     def undo(self):
         """Remove created event."""
         self.project.events.remove(self.event)
+        self.project.update_modified()
     
     def description(self) -> str:
         return f"Create {self.event.source} event"
@@ -102,6 +139,11 @@ class CreateEventCommand(Command):
 
 class EditBoundaryCommand(Command):
     """Command to edit event boundaries."""
+
+    STATE_FIELDS = (
+        "start_idx", "end_idx", "start_time_s", "end_time_s",
+        "features", "needs_manual", "modified_at",
+    )
     
     def __init__(self, project: Project, timestamp, mass, segments,
                  event_id: str, new_start_idx: int, new_end_idx: int,
@@ -115,23 +157,26 @@ class EditBoundaryCommand(Command):
         self.new_end_idx = new_end_idx
         self.new_start_time = new_start_time
         self.new_end_time = new_end_time
-        self.old_start_idx = None
-        self.old_end_idx = None
-        self.old_start_time = None
-        self.old_end_time = None
-        self.old_features = None
+        self.old_state = None
+        self.new_state = None
+
+    def _state(self, event):
+        return {field: deepcopy(getattr(event, field)) for field in self.STATE_FIELDS}
+
+    def _restore(self, event, state):
+        for field, value in state.items():
+            setattr(event, field, deepcopy(value))
+        self.project.sort_events_by_time()
+        self.project.update_modified()
     
     def execute(self):
         """Update event boundaries and recompute features."""
         event = self.project.get_event_by_id(self.event_id)
         if event:
-            # Save old values
-            self.old_start_idx = event.start_idx
-            self.old_end_idx = event.end_idx
-            self.old_start_time = event.start_time_s
-            self.old_end_time = event.end_time_s
-            self.old_features = event.features
-            
+            if self.new_state is not None:
+                self._restore(event, self.new_state)
+                return
+            self.old_state = self._state(event)
             # Set new values
             event.start_idx = self.new_start_idx
             event.end_idx = self.new_end_idx
@@ -146,20 +191,63 @@ class EditBoundaryCommand(Command):
                 self.segments,
                 baseline_window_s=self.project.detection_params.baseline_window_s,
             )
+            # A reviewer may have set this flag explicitly. A new feature
+            # calculation must not silently clear that review decision.
+            event.needs_manual |= self.old_state["needs_manual"]
+            self.new_state = self._state(event)
+            self.project.sort_events_by_time()
+            self.project.update_modified()
     
     def undo(self):
         """Restore old boundaries."""
         event = self.project.get_event_by_id(self.event_id)
-        if event:
-            event.start_idx = self.old_start_idx
-            event.end_idx = self.old_end_idx
-            event.start_time_s = self.old_start_time
-            event.end_time_s = self.old_end_time
-            event.features = self.old_features
-            event.update_modified()
+        if event and self.old_state is not None:
+            self._restore(event, self.old_state)
     
     def description(self) -> str:
         return "Edit event boundaries"
+
+
+class ClassifyEventsCommand(Command):
+    """Classify the current events as one reversible review action."""
+
+    def __init__(self, project: Project, params: dict):
+        self.project = project
+        self.params = params.copy()
+        self.before = None
+        self.after = None
+
+    def _state(self):
+        return {
+            event.event_id: (event.label_user, event.needs_manual, event.modified_at)
+            for event in self.project.events
+        }
+
+    def _restore(self, state):
+        for event in self.project.events:
+            if event.event_id in state:
+                event.label_user, event.needs_manual, event.modified_at = state[event.event_id]
+        self.project.update_modified()
+
+    def execute(self):
+        if self.after is not None:
+            self._restore(self.after)
+            return
+        self.before = self._state()
+        auto_classify_events(self.project.events, **self.params)
+        for event in self.project.events:
+            before = self.before[event.event_id]
+            if (event.label_user, event.needs_manual) != before[:2]:
+                event.update_modified()
+        self.after = self._state()
+        self.project.update_modified()
+
+    def undo(self):
+        if self.before is not None:
+            self._restore(self.before)
+
+    def description(self) -> str:
+        return "Classify events"
 
 
 class DetectEventsCommand(Command):

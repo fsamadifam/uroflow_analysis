@@ -11,6 +11,7 @@ class EventTableModel(QAbstractTableModel):
     """Table model for event list."""
 
     label_changed = Signal(str)  # event_id
+    edit_requested = Signal(str, str, object)  # event_id, field, new value
     
     # Column indices
     COL_ID = 0
@@ -73,6 +74,9 @@ class EventTableModel(QAbstractTableModel):
         
         if role == Qt.DisplayRole:
             return self._get_display_data(event, col)
+
+        elif role == Qt.EditRole and col == self.COL_LABEL:
+            return event.label_user
         
         elif role == Qt.CheckStateRole:
             # Show checkbox for Locked and Needs Manual columns
@@ -209,54 +213,40 @@ class EventTableModel(QAbstractTableModel):
         event = self.events[index.row()]
         col = index.column()
         
+        field = None
         if col == self.COL_LABEL:
             if role != Qt.EditRole:
                 return False
-            # Validate label
-            valid_labels = ["", "urine", "feces", "bad"]
-            if value.lower() in valid_labels:
-                event.label_user = value.lower()
-                event.update_modified()
-                self.dataChanged.emit(index, index)
-                self.label_changed.emit(event.event_id)
-                return True
+            if not isinstance(value, str) or value.lower() not in ("", "urine", "feces", "bad"):
+                return False
+            field, value = "label_user", value.lower()
         
         elif col == self.COL_LOCKED:
-            # Handle both checkbox toggle and direct value setting
-            if role == Qt.CheckStateRole:
-                event.locked = (value == Qt.Checked)
-            elif role == Qt.EditRole:
-                # Allow text input: "Yes"/"No" or boolean
-                if isinstance(value, bool):
-                    event.locked = value
-                elif isinstance(value, str):
-                    event.locked = value.lower() in ['yes', 'true', '1']
-                else:
-                    return False
-            else:
-                return False
-            
-            event.update_modified()
-            self.dataChanged.emit(index, index)
-            return True
+            field = "locked"
         
         elif col == self.COL_NEEDS_MANUAL:
-            # Handle both checkbox toggle and direct value setting
+            field = "needs_manual"
+
+        if field in ("locked", "needs_manual"):
             if role == Qt.CheckStateRole:
-                event.needs_manual = (value == Qt.Checked)
+                value = value == Qt.Checked
             elif role == Qt.EditRole:
-                # Allow text input: "Yes"/"No" or boolean
                 if isinstance(value, bool):
-                    event.needs_manual = value
+                    pass
                 elif isinstance(value, str):
-                    event.needs_manual = value.lower() in ['yes', 'true', '1']
+                    value = value.lower() in ("yes", "true", "1")
                 else:
                     return False
             else:
                 return False
-            
-            event.update_modified()
+
+        if field is not None:
+            if getattr(event, field) == value:
+                return False
+            self.edit_requested.emit(event.event_id, field, value)
             self.dataChanged.emit(index, index)
+            if field == "label_user":
+                self.label_changed.emit(event.event_id)
             return True
         
         return False
