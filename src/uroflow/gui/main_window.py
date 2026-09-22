@@ -598,6 +598,7 @@ class MainWindow(QMainWindow):
                 video_folder_path=video_folder
             )
             self.project_path = None
+            self.last_save_time = None
             self._reset_review_history()
             
             self.timestamp = timestamp
