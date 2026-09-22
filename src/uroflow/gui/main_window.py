@@ -648,7 +648,10 @@ class MainWindow(QMainWindow):
                 self.project.events
             )
             print("  Updating detail plot...")
-            self.detail_plot.set_data(self.timestamp, self.mass)
+            self.detail_plot.set_data(
+                self.timestamp, self.mass,
+                baseline_window_s=self.project.detection_params.baseline_window_s,
+            )
             
             # Update event table
             print("  Updating event table...")
@@ -1479,6 +1482,9 @@ class MainWindow(QMainWindow):
                 self.metadata,
                 baseline_window_s=baseline_window_s,
             )
+
+            if self.detail_plot.current_event is event:
+                self.detail_plot.refresh_event_type(event)
             
             # Update just this event in overview plot (faster, avoids crash)
             self.overview_plot.update_event_bounds(event_id, new_start_time, new_end_time)

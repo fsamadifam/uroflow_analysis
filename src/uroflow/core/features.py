@@ -43,7 +43,7 @@ def compute_event_features(event: Event,
     duration_s = event.end_time_s - event.start_time_s
     
     # Compute delta mass (pre vs post, anchored to boundary times)
-    delta_mass_g = _compute_delta_mass(
+    delta_mass_g = compute_delta_mass(
         timestamp,
         mass,
         event.start_time_s,
@@ -145,7 +145,7 @@ def _get_wall_clock_for_event(event: Event, metadata: dict) -> str:
     return ""
 
 
-def _compute_delta_mass(timestamp: np.ndarray,
+def compute_delta_mass(timestamp: np.ndarray,
                        mass: np.ndarray,
                        start_time_s: float,
                        end_time_s: float,
@@ -165,17 +165,15 @@ def _compute_delta_mass(timestamp: np.ndarray,
     Returns:
         Delta mass in grams (post - pre)
     """
-    pre_mask = (
-        (timestamp >= start_time_s - baseline_window_s) &
-        (timestamp <= start_time_s)
-    )
-    pre_median = np.nanmedian(mass[pre_mask]) if np.any(pre_mask) else np.nan
-    
-    post_mask = (
-        (timestamp >= end_time_s) &
-        (timestamp <= end_time_s + baseline_window_s)
-    )
-    post_median = np.nanmedian(mass[post_mask]) if np.any(post_mask) else np.nan
+    # The time series is ordered; slice only the two short baseline windows so
+    # this calculation can also run while a boundary line is being dragged.
+    pre_start = np.searchsorted(timestamp, start_time_s - baseline_window_s)
+    pre_end = np.searchsorted(timestamp, start_time_s, side='right')
+    post_start = np.searchsorted(timestamp, end_time_s)
+    post_end = np.searchsorted(timestamp, end_time_s + baseline_window_s, side='right')
+
+    pre_median = np.nanmedian(mass[pre_start:pre_end]) if pre_end > pre_start else np.nan
+    post_median = np.nanmedian(mass[post_start:post_end]) if post_end > post_start else np.nan
     
     if np.isfinite(pre_median) and np.isfinite(post_median):
         return float(post_median - pre_median)

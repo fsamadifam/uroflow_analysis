@@ -2,6 +2,7 @@
 
 import numpy as np
 import pyqtgraph as pg
+from html import escape
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QScrollBar,
     QComboBox, QCheckBox,
@@ -10,6 +11,7 @@ from PySide6.QtCore import Signal, Qt
 from PySide6.QtGui import QColor
 
 from uroflow.core.types import Event, Segment, Gap
+from uroflow.core.features import compute_delta_mass
 
 
 class OverviewPlot(QWidget):
@@ -1140,6 +1142,7 @@ class DetailPlot(QWidget):
         self.timestamp = None
         self.mass = None
         self.current_event = None
+        self.baseline_window_s = 1.0
         self.window_padding_s = 30.0  # Show ±30s around event
         self._setting_event = False  # Flag to block signals during event setup
         self.plot_style = "line"
@@ -1211,7 +1214,9 @@ class DetailPlot(QWidget):
             fill=pg.mkBrush(255, 255, 255, 220),
         )
         self.event_type_item.setZValue(20)
-        self.event_type_item.setToolTip("Label assigned to the selected event")
+        self.event_type_item.setToolTip(
+            "Selected event label, duration, and change in mass between baseline windows"
+        )
         self.plot_widget.addItem(self.event_type_item, ignoreBounds=True)
         self.plot_widget.getViewBox().sigRangeChanged.connect(
             self._position_event_type_indicator
@@ -1270,20 +1275,37 @@ class DetailPlot(QWidget):
         self.data_curve.setSymbolBrush(event_color)
         self.data_curve.setSymbolPen(event_color)
 
-    def _update_event_type_indicator(self, event: Event | None):
-        """Show the selected event's label and use the same color as the trace."""
+    def _update_event_type_indicator(self, event: Event | None,
+                                     start_time_s: float | None = None,
+                                     end_time_s: float | None = None):
+        """Show the label and measurements for the current boundary positions."""
         if event is None:
             display_label = "None"
             color = self._EVENT_TYPE_COLORS[""]
+            duration_text = mass_text = "—"
         else:
             label = event.label_user or ""
             display_label = label.capitalize() if label else "Unlabeled"
             color = self._EVENT_TYPE_COLORS.get(label, self._EVENT_TYPE_COLORS[""])
+            start = event.start_time_s if start_time_s is None else start_time_s
+            end = event.end_time_s if end_time_s is None else end_time_s
+            duration_text = f"{end - start:.2f} s"
+            mass_text = "—"
+            if self.timestamp is not None and self.mass is not None:
+                delta_mass_g = compute_delta_mass(
+                    self.timestamp, self.mass, start, end,
+                    baseline_window_s=self.baseline_window_s,
+                )
+                if np.isfinite(delta_mass_g):
+                    mass_text = f"{delta_mass_g:.3f} g"
 
         self.event_type_item.setHtml(
-            '<div style="font-size: 14pt; font-weight: 600;">'
+            '<div style="font-size: 12pt; font-weight: 600;">'
             '<span style="color: #000000;">Event:</span> '
-            f'<span style="color: {color};">{display_label}</span>'
+            f'<span style="color: {color};">{escape(display_label)}</span>'
+            '<br><span style="color: #000000;">'
+            f'Duration: {duration_text} &nbsp;|&nbsp; Δ Mass: {mass_text}'
+            '</span>'
             '</div>'
         )
         self._position_event_type_indicator()
@@ -1296,20 +1318,23 @@ class DetailPlot(QWidget):
         self.event_type_item.setPos(x_range[0] + x_padding, y_range[1] - y_padding)
 
     def refresh_event_type(self, event: Event):
-        """Refresh the label and trace color after the selected event is edited."""
+        """Refresh the label, measurements, and trace color after an edit."""
         self.current_event = event
         self._update_event_type_indicator(event)
         self._apply_plot_style()
 
-    def set_data(self, timestamp: np.ndarray, mass: np.ndarray):
+    def set_data(self, timestamp: np.ndarray, mass: np.ndarray,
+                 baseline_window_s: float = 1.0):
         """Set full dataset.
         
         Args:
             timestamp: Time array
             mass: Mass array
+            baseline_window_s: Width of the pre/post mass baseline windows
         """
         self.timestamp = timestamp
         self.mass = mass
+        self.baseline_window_s = baseline_window_s
     
     def show_event(self, event: Event):
         """Show detail view for an event.
@@ -1402,6 +1427,8 @@ class DetailPlot(QWidget):
         if new_start >= new_end:
             return
         
+        self._update_event_type_indicator(self.current_event, new_start, new_end)
+
         # Emit signal
         self.boundary_changed.emit(self.current_event.event_id, new_start, new_end)
     
