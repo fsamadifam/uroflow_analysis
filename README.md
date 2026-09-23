@@ -75,6 +75,15 @@ For development dependencies, use `python -m pip install -e ".[dev]"`.
 2. Choose **File > New Project**, then select the uroflow CSV and `session_config.json`. Selecting a video folder is optional.
 3. Click **Detect Events**, review the settings, and run detection. Creating a project initially loads acquisition-flag events only; automatic slope detection runs when this button is used.
 4. Review and label the candidates in the **Events** table or plots.
+   The video pane below the table shows the selected event's matched clip and
+   the corrected video save time relative to the event. Use **Play**, the frame
+   buttons, or the slider to inspect it. If the video and recording clocks
+   differ, set **Video clock offset** in seconds; the value is saved in the
+   project and applied to video matching. **Mark location at this frame** opens
+   annotation on the displayed frame. Frame alignment assumes the filename
+   timestamp marks the end of the replay clip.
+   Double-click an event or choose **Show Event Video** to open its matched
+   video in the external player.
 5. Press `Ctrl+S` to save the project JSON, then use **Export Events CSV** when the review is ready for downstream analysis.
 
 The application can also open inputs directly from the command line:
@@ -120,7 +129,7 @@ The file must contain valid JSON. The commonly used metadata fields are `cage_id
 
 ## Saved files and exports
 
-- **Project JSON** preserves source-file paths, detection settings, events, labels, edits, video-folder selection, and spatial calibration. Keep the source CSV and config with the project when moving an analysis; the application will prompt for replacements if their saved paths cannot be found.
+- **Project JSON** preserves source-file paths, detection settings, events, labels, edits, video-folder selection, video clock offset, and spatial calibration. Keep the source CSV and config with the project when moving an analysis; the application will prompt for replacements if their saved paths cannot be found.
 - **Events CSV** contains event timing, labels, source, review flags, computed features, spatial coordinates, and calibration metadata where available.
 - **Gallery PNG** is available from the **Gallery** tab.
 - **Analysis Figures** previews the spatial/count, radial-distance,

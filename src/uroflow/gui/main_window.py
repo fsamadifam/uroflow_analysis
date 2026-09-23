@@ -3,8 +3,8 @@
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
     QTabWidget, QLabel, QFileDialog, QMessageBox, QStatusBar,
-    QMenuBar, QPushButton, QProgressDialog, QApplication,
-    QDialog, QFormLayout, QDoubleSpinBox, QDialogButtonBox, QMenu
+    QPushButton, QProgressDialog, QApplication,
+    QDialog, QFormLayout, QDoubleSpinBox, QDialogButtonBox
 )
 from PySide6.QtCore import Qt, Signal, QTimer, QObject
 from PySide6.QtGui import QAction, QKeySequence
@@ -31,6 +31,7 @@ from uroflow.gui.event_widget import EventWidget
 from uroflow.gui.gallery import EventGallery
 from uroflow.gui.info_panel import InfoPanel
 from uroflow.gui.summary_panel import SummaryPanel
+from uroflow.gui.video_review import VideoReviewPane
 from uroflow.gui.actions import (
     UndoStack, LabelEventCommand, EditEventFieldCommand, DeleteEventCommand,
     CreateEventCommand, EditBoundaryCommand, ClassifyEventsCommand,
@@ -215,7 +216,16 @@ class MainWindow(QMainWindow):
         self.summary_widget = SummaryPanel()
         right_panel.addTab(self.summary_widget, "Summary")
         
-        main_splitter.addWidget(right_panel)
+        # Keep the table and video visible together while reviewing events.
+        right_splitter = QSplitter(Qt.Vertical)
+        right_splitter.setChildrenCollapsible(False)
+        right_splitter.addWidget(right_panel)
+        self.video_pane = VideoReviewPane()
+        self.video_pane.clock_offset_changed.connect(self._on_video_clock_offset_changed)
+        self.video_pane.annotation_requested.connect(self._open_annotation_dialog)
+        right_splitter.addWidget(self.video_pane)
+        right_splitter.setSizes([580, 380])
+        main_splitter.addWidget(right_splitter)
         
         # Set splitter sizes (60% plots, 40% table/gallery)
         main_splitter.setSizes([960, 640])
@@ -700,11 +710,17 @@ class MainWindow(QMainWindow):
             self._update_video_folder_status()
             
             # Notify event widget about video folder
-            if self.project.video_folder_path:
-                self.event_widget.set_video_folder(
-                    self.project.video_folder_path,
-                    self.project.session_config_snapshot
-                )
+            self.event_widget.set_video_folder(
+                self.project.video_folder_path,
+                self.project.session_config_snapshot
+            )
+            self.event_widget.set_video_clock_offset(self.project.video_clock_offset_s)
+            self.video_pane.set_event(None)
+            self.video_pane.set_context(
+                self.project.video_folder_path,
+                self.project.session_config_snapshot,
+                self.project.video_clock_offset_s,
+            )
             
             # Select first event if available
             if self.project.events:
@@ -844,6 +860,12 @@ class MainWindow(QMainWindow):
             self.event_widget.set_video_folder(
                 folder_path,
                 self.project.session_config_snapshot if self.project else None
+            )
+            self.event_widget.set_video_clock_offset(self.project.video_clock_offset_s)
+        if hasattr(self, 'video_pane'):
+            self.video_pane.set_context(
+                folder_path, self.project.session_config_snapshot,
+                self.project.video_clock_offset_s,
             )
     
     def _select_video_folder_dialog(self):
@@ -1182,7 +1204,6 @@ class MainWindow(QMainWindow):
     def _open_annotation_dialog(self, event_id: Optional[str] = None):
         """Open event location annotation dialog for an event."""
         from uroflow.spatial.gui.annotation_dialog import EventAnnotationDialog
-        from uroflow.core.video import find_matching_videos, get_video_files
         
         if not self.project:
             QMessageBox.warning(self, "No Project", "Please load a project first.")
@@ -1210,87 +1231,20 @@ class MainWindow(QMainWindow):
             )
             return
         
-        # Find matching video
-        video_folder = self.project.video_folder_path
-        if not video_folder:
-            QMessageBox.warning(
-                self, "No Video Folder",
-                "No video folder configured.\nPlease set it via File -> Set Video Folder."
-            )
-            return
-        
-        video_files = get_video_files(video_folder)
-        if not video_files or not event.wall_clock_time:
-            QMessageBox.information(
-                self, "No Video",
-                "Cannot find matching video for this event."
-            )
-            return
-        
-        session_config = self.project.session_config_snapshot or {}
-        matches = find_matching_videos(
-            event, video_files,
-            session_config.get('start_date', ''),
-            session_config.get('start_time', ''),
-            max_delay_after_event_s=60.0,
-        )
-        
-        if not matches:
-            QMessageBox.information(
-                self, "No Video",
-                f"No video found near event time: {event.wall_clock_time}"
-            )
-            return
-        
-        # Select video based on number of matches
-        selected_video_path = None
-        
-        if len(matches) == 1:
-            # Single match - use it directly
-            selected_video_path = str(matches[0][0])
-            
-        elif len(matches) <= 3:
-            # 2-3 matches - show popup menu to choose
-            menu = QMenu(self)
-            menu.setTitle("Select Video for Annotation")
-            
-            for video_path, video_dt, offset in matches:
-                offset_str = f"+{offset:.0f}s" if offset >= 0 else f"{offset:.0f}s"
-                action_text = f"{video_path.name} ({offset_str})"
-                action = menu.addAction(action_text)
-                action.setData(str(video_path))
-            
-            # Show menu at cursor position
-            action = menu.exec_(self.cursor().pos())
-            
-            if action:
-                selected_video_path = action.data()
-            else:
-                return  # User canceled
-                
-        else:
-            # More than 3 matches - show dialog to confirm best match
-            video_path, video_dt, offset = matches[0]
-            reply = QMessageBox.question(
-                self, "Multiple Videos Found",
-                f"Found {len(matches)} potential videos for this event.\n\n"
-                f"Use the closest match for annotation?\n{video_path.name}",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.Yes
-            )
-            
-            if reply == QMessageBox.StandardButton.Yes:
-                selected_video_path = str(video_path)
-            else:
-                return  # User declined
-        
+        # The frame and match selected in the review pane are also used by
+        # the annotation dialog, including any saved clock correction.
+        if self.current_event_id != event_id:
+            self._on_event_selected(event_id)
+        selected_video_path = self.video_pane.selected_video_path
         if not selected_video_path:
+            QMessageBox.information(self, "No Video", "No decodable video is matched to this event.")
             return
         
         dialog = EventAnnotationDialog(
             video_path=selected_video_path,
             calibration=calibration,
             event_label=event.label_user,
+            initial_frame_index=self.video_pane.current_frame,
             parent=self,
         )
         
@@ -1315,6 +1269,14 @@ class MainWindow(QMainWindow):
                 )
                 self.event_widget.update_event(event_id)
                 self.event_widget.proxy_model.invalidateFilter()
+
+    def _on_video_clock_offset_changed(self, offset_s: float):
+        if not self.project:
+            return
+        self.project.video_clock_offset_s = offset_s
+        self.project.update_modified()
+        self.event_widget.set_video_clock_offset(offset_s)
+        self.video_pane.set_event(self.project.get_event_by_id(self.current_event_id))
     
     def _on_event_selected(self, event_id: str):
         """Handle event selection from table or plot.
@@ -1381,6 +1343,8 @@ class MainWindow(QMainWindow):
                 print("  Info panel updated")
             except Exception as e:
                 print(f"  ERROR updating info panel: {e}")
+
+            self.video_pane.set_event(event)
             
             # Emit signal (temporarily disabled - may be causing crashes)
             # try:
@@ -1988,6 +1952,7 @@ class MainWindow(QMainWindow):
         else:
             self.detail_plot.clear()
             self.info_widget.set_event(None)
+            self.video_pane.set_event(None)
         
         print("_refresh_all_views: Complete")
     

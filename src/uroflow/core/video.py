@@ -92,10 +92,9 @@ def parse_event_wall_clock(
         start_date = datetime.strptime(session_start_date, "%Y-%m-%d").date()
         start_time = datetime.strptime(session_start_time, "%H:%M:%S").time()
         
-        # Parse event time (handle microseconds)
-        # Remove microseconds if present for simpler comparison
-        event_time_str = wall_clock_str.split('.')[0]
-        event_time = datetime.strptime(event_time_str, "%H:%M:%S").time()
+        # Keep fractional seconds so the displayed match delay is accurate.
+        time_format = "%H:%M:%S.%f" if "." in wall_clock_str else "%H:%M:%S"
+        event_time = datetime.strptime(wall_clock_str, time_format).time()
         
         # Combine with date
         event_datetime = datetime.combine(start_date, event_time)
@@ -117,7 +116,8 @@ def find_matching_videos(
     session_start_date: str,
     session_start_time: str,
     max_delay_after_event_s: float = 30.0,
-    max_time_before_event_s: float = 5.0
+    max_time_before_event_s: float = 5.0,
+    clock_offset_s: float = 0.0,
 ) -> List[Tuple[Path, datetime, float]]:
     """Find videos that could contain an event.
     
@@ -140,10 +140,13 @@ def find_matching_videos(
         session_start_time: Session start time from config
         max_delay_after_event_s: Max seconds after event that video can be saved
         max_time_before_event_s: Max seconds before event (edge case)
+        clock_offset_s: Seconds added to video filename timestamps to correct
+            the video clock relative to the recording clock
         
     Returns:
         List of (filepath, video_datetime, time_offset_s) tuples
-        time_offset_s is (video_save_time - event_time), positive means video saved after event
+        time_offset_s is (video_save_time + clock_offset_s - event_time).
+        Positive means the corrected video save time is after the event.
         Sorted by relevance (nearest video after event first)
     """
     if not video_files or not event.wall_clock_time:
@@ -165,7 +168,7 @@ def find_matching_videos(
         # Time offset: how many seconds after event was video saved
         # Positive = video saved after event (expected case)
         # Negative = video saved before event (edge case)
-        offset = (video_dt - event_dt).total_seconds()
+        offset = (video_dt + timedelta(seconds=clock_offset_s) - event_dt).total_seconds()
         
         # Match if:
         # - Video saved after event (offset > 0) within max_delay_after_event_s

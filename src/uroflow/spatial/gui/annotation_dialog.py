@@ -103,6 +103,7 @@ class EventAnnotationDialog(QDialog):
         video_path: str,
         calibration: CalibrationData,
         event_label: str = "",
+        initial_frame_index: int = 0,
         parent=None,
     ):
         super().__init__(parent)
@@ -112,6 +113,7 @@ class EventAnnotationDialog(QDialog):
         self._video_path = video_path
         self._calibration = calibration
         self._event_label = event_label
+        self._initial_frame_index = initial_frame_index
         self._frame: Optional[np.ndarray] = None
         self._marker_item: Optional[QGraphicsEllipseItem] = None
         self._selected_point: Optional[Tuple[float, float]] = None
@@ -188,6 +190,8 @@ class EventAnnotationDialog(QDialog):
             self._time_slider.setRange(0, total_frames - 1)
 
         self._display_frame(frame)
+        if self._initial_frame_index > 0:
+            self._time_slider.setValue(min(self._initial_frame_index, self._time_slider.maximum()))
 
     def _display_frame(self, frame: np.ndarray):
         """Display frame and calibration overlay."""

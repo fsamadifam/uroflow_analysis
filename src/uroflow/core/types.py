@@ -234,13 +234,17 @@ class Project:
     
     # Video folder path (optional)
     video_folder_path: Optional[str] = None
-    
+
     # Spatial calibration (stored in project for portability)
     spatial_calibration: Optional[dict] = None
     
     # Metadata
     created_at: str = field(default_factory=lambda: datetime.now().isoformat())
     last_modified: str = field(default_factory=lambda: datetime.now().isoformat())
+
+    # Seconds added to video filename timestamps to align the video clock
+    # with the recording clock.
+    video_clock_offset_s: float = 0.0
     
     def update_modified(self):
         """Update the last modified timestamp."""
